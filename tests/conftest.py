@@ -59,6 +59,7 @@ def _no_external_calls(monkeypatch):
     monkeypatch.setattr(settings, "WEATHER_ENABLED", False)
     monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
     monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", "")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "")
 
 
 @pytest_asyncio.fixture

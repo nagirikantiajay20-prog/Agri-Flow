@@ -7,10 +7,11 @@ only dispatched after the request's transaction commits
 say, one that failed its stock check — would tell the farmer something
 that never happened.
 
-Credentials come from FIREBASE_CREDENTIALS_JSON (the service-account JSON
-itself, convenient for Render environment variables) or
-FIREBASE_CREDENTIALS_PATH (a mounted secret file). With neither set, push
-is disabled and in-app notifications keep working unchanged.
+Credentials come from, in order: FIREBASE_CREDENTIALS_JSON (the
+service-account JSON itself, convenient for Render environment
+variables), FIREBASE_CREDENTIALS_PATH, or GOOGLE_APPLICATION_CREDENTIALS
+(a mounted secret file). With none set, push is disabled and in-app
+notifications keep working unchanged.
 """
 from __future__ import annotations
 
@@ -53,19 +54,26 @@ def discard(db: AsyncSession) -> None:
     db.info.pop(SESSION_QUEUE_KEY, None)
 
 
+def _credential_source() -> dict | str | None:
+    if settings.FIREBASE_CREDENTIALS_JSON:
+        return json.loads(settings.FIREBASE_CREDENTIALS_JSON)
+    return settings.FIREBASE_CREDENTIALS_PATH or settings.GOOGLE_APPLICATION_CREDENTIALS or None
+
+
 @lru_cache
 def _firebase_app():
-    if not (settings.FIREBASE_CREDENTIALS_JSON or settings.FIREBASE_CREDENTIALS_PATH):
+    source = _credential_source()
+    if source is None:
         return None
     import firebase_admin
     from firebase_admin import credentials
 
-    source = (
-        json.loads(settings.FIREBASE_CREDENTIALS_JSON)
-        if settings.FIREBASE_CREDENTIALS_JSON
-        else settings.FIREBASE_CREDENTIALS_PATH
-    )
     return firebase_admin.initialize_app(credentials.Certificate(source), name="agriflow")
+
+
+def project_id() -> str | None:
+    app = _firebase_app() if is_enabled() else None
+    return app.project_id if app else None
 
 
 def is_enabled() -> bool:
@@ -78,15 +86,33 @@ def is_enabled() -> bool:
 
 def _send_blocking(tokens: list[str], push: Push) -> list[str]:
     """Returns the tokens FCM reported as permanently invalid."""
+    import warnings
+
     from firebase_admin import messaging
 
-    message = messaging.MulticastMessage(
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="MulticastMessage.tokens is deprecated")
+        message = _multicast(messaging, tokens, push)
+    response = messaging.send_each_for_multicast(message, app=_firebase_app())
+    return _dead_tokens(tokens, response)
+
+
+def _multicast(messaging, tokens: list[str], push: Push):
+    """`tokens` are FCM registration tokens — what Flutter's
+    FirebaseMessaging.getToken() returns. firebase-admin 7 deprecates the
+    parameter in favour of `fids`, but those are Firebase Installation IDs,
+    a different identifier; passing registration tokens there would break
+    delivery. requirements.txt pins firebase-admin below 8 until the client
+    side moves to FIDs."""
+    return messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=push.title, body=push.body),
         data=push.data,
         android=messaging.AndroidConfig(priority="high"),
     )
-    response = messaging.send_each_for_multicast(message, app=_firebase_app())
+
+
+def _dead_tokens(tokens: list[str], response) -> list[str]:
     dead = []
     for token, result in zip(tokens, response.responses, strict=False):
         if not result.success and type(result.exception).__name__ in {

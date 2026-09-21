@@ -16,4 +16,4 @@ structlog>=24.1
 prometheus-client>=0.20
 boto3>=1.34
 psycopg2-binary>=2.9
-firebase-admin>=6.5
+firebase-admin>=6.5,<8

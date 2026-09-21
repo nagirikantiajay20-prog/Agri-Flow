@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     # ── Push notifications (FCM) ─────────────────────────────────────
     FIREBASE_CREDENTIALS_JSON: str = ""
     FIREBASE_CREDENTIALS_PATH: str = ""
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
 
     # ── Weather advisory (Open-Meteo, keyless) ───────────────────────
     WEATHER_ENABLED: bool = True

@@ -88,7 +88,13 @@ async def health_ready():
     except Exception as exc:  # noqa: BLE001
         logger.error("readiness_db_check_failed", error=str(exc))
         db_ok = False
-    return {"status": "ready" if db_ok else "not_ready", "database": db_ok}
+    from app.services import push_service
+
+    return {
+        "status": "ready" if db_ok else "not_ready",
+        "database": db_ok,
+        "push": push_service.is_enabled(),
+    }
 
 
 if settings.METRICS_ENABLED:

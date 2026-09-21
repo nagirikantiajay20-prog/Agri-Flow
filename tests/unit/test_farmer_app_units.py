@@ -141,3 +141,30 @@ async def test_rate_limit_keys_authenticated_traffic_on_the_user(active_farmer):
     assert _principal(request(auth_headers(active_farmer)), "10.0.0.1") == f"user:{active_farmer.id}"
     assert _principal(request({"Authorization": "Bearer forged"}), "10.0.0.1") == "ip:10.0.0.1"
     assert _principal(request({}), "10.0.0.1") == "ip:10.0.0.1"
+
+
+async def test_firebase_app_is_initialised_once_and_stays_enabled(monkeypatch):
+    import firebase_admin
+    from firebase_admin import credentials
+
+    from app.core.config import settings
+
+    calls = []
+    monkeypatch.setattr(credentials, "Certificate", lambda source: ("cert", source))
+    monkeypatch.setattr(firebase_admin, "initialize_app", lambda cred, name: calls.append(name) or object())
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", '{"type": "service_account"}')
+    push_service._firebase_app.cache_clear()
+    try:
+        assert all(push_service.is_enabled() for _ in range(3))
+        assert calls == ["agriflow"], "initialize_app must run once; a second call raises 'app already exists'"
+    finally:
+        push_service._firebase_app.cache_clear()
+
+
+async def test_google_application_credentials_is_honoured(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", "")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "/etc/secrets/firebase-service-account.json")
+    assert push_service._credential_source() == "/etc/secrets/firebase-service-account.json"
