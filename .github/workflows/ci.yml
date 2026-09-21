@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    # Real Postgres, not SQLite — see tests/conftest.py: several
+    # behaviors under test (SELECT ... FOR UPDATE row locking, JSONB,
+    # native constraint enforcement) don't have faithful SQLite
+    # equivalents, and the concurrency tests (Master Plan §12/§39) are
+    # the whole point of this suite.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agriflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/agriflow_test
+      DATABASE_URL_SYNC: postgresql+psycopg2://postgres:postgres@localhost:5432/agriflow_test
+      JWT_SECRET_KEY: ci-only-secret-not-for-production
+      OTP_ECHO_IN_RESPONSE: "false"
+      REDIS_URL: redis://localhost:6379/0
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check app tests scripts
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Run tests (excluding the page-load budget)
+        run: pytest -v -m "not performance" --cov=app --cov-report=term-missing
+
+      - name: RBAC integrity verification
+        run: pytest -v tests/security
+
+      - name: Page-load budget
+        run: pytest -v -m performance -s
+
+      - name: Import-check the app (catches wiring errors lint/tests might miss)
+        run: python -c "import app.main; print(len(app.main.app.routes), 'routes registered')"
