@@ -40,6 +40,7 @@ class CropStatus(str, enum.Enum):
 
 class VisitStatus(str, enum.Enum):
     SCHEDULED = "scheduled"
+    PENDING_REVIEW = "pending_review"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -94,6 +95,20 @@ class BankRequestStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class CropStage(str, enum.Enum):
+    SOWING = "Sowing"
+    GROWING = "Growing"
+    MATURITY = "Maturity"
+    HARVEST = "Harvest"
+
+
+class DocumentType(str, enum.Enum):
+    AVATAR = "avatar"
+    AADHAAR = "aadhaar"
+    PASSBOOK = "passbook"
+    LAND = "land"
 
 
 class NotificationType(str, enum.Enum):

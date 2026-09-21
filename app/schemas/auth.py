@@ -10,6 +10,14 @@ from app.schemas.common import ORMBase
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     phone: str = Field(min_length=8, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_phone(cls, v: str) -> str:
+        from app.schemas.farmer_app import normalize_phone
+
+        return normalize_phone(v)
+
     email: EmailStr | None = None
     password: str = Field(min_length=8, max_length=128)
     otp: str | None = None
@@ -59,6 +67,13 @@ class ForgotPasswordResetRequest(BaseModel):
 class LoginRequest(BaseModel):
     phone: str
     password: str
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_phone(cls, v: str) -> str:
+        from app.schemas.farmer_app import normalize_phone
+
+        return normalize_phone(v)
 
 
 class RefreshRequest(BaseModel):

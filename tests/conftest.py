@@ -50,6 +50,17 @@ async def _setup_schema():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+@pytest.fixture(autouse=True)
+def _no_external_calls(monkeypatch):
+    """No test may reach Open-Meteo or Firebase; tests that exercise those
+    integrations re-enable them explicitly against a stub."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WEATHER_ENABLED", False)
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", "")
+
+
 @pytest_asyncio.fixture
 async def db_session() -> AsyncSession:
     async with AsyncSessionLocal() as session:

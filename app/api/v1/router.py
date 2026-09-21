@@ -17,6 +17,7 @@ from app.api.v1 import (
     uploads,
     warehouses,
 )
+from app.api.v1 import farmer as farmer_app
 
 api_router = APIRouter()
 
@@ -39,3 +40,4 @@ api_router.include_router(admin.router)
 api_router.include_router(admin.managers_router)
 api_router.include_router(admin.market_rates_router)
 api_router.include_router(uploads.router)
+api_router.include_router(farmer_app.router)

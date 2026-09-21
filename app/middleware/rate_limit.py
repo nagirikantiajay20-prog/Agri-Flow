@@ -7,7 +7,8 @@ Buckets (overridable via .env, defaults match the legacy documented
 targets in RATE_LIMITING.md — but that doc describes a never-built
 Express backend, so these numbers are a starting point to tune against
 real traffic, not gospel — Master Plan §1.6):
-  - global:  RATE_LIMIT_GLOBAL_PER_15MIN  per IP
+  - global:  RATE_LIMIT_GLOBAL_PER_15MIN  per signed-in user (per IP when anonymous)
+  - login:   RATE_LIMIT_LOGIN_PER_MIN     per IP, on /auth/login
   - auth:    RATE_LIMIT_AUTH_PER_15MIN    per IP, on /auth/*
   - otp:     RATE_LIMIT_OTP_PER_MIN       per phone, on OTP issuance
   - write:   RATE_LIMIT_WRITE_PER_5MIN    per principal, on mutating requests
@@ -32,6 +33,7 @@ from starlette.responses import JSONResponse
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.redis import get_redis, is_available, mark_available, mark_unavailable
+from app.core.security import JWTError, decode_token
 
 logger = get_logger(__name__)
 
@@ -40,8 +42,26 @@ AUTH_WINDOW = 900
 UPLOAD_WINDOW = 900
 ADMIN_WINDOW = 300
 WRITE_WINDOW = 300
+LOGIN_WINDOW = 60
 
 EXEMPT_PATHS = ("/health", "/metrics", "/api/v1/docs", "/api/v1/redoc", "/api/v1/openapi.json")
+
+
+def _principal(request: Request, client_ip: str) -> str:
+    """The signed-in user when the request carries a valid access token,
+    otherwise the client IP. Keying authenticated traffic on the user
+    matters for the mobile app: carrier-grade NAT puts many farmers
+    behind one public IP, and an IP-keyed limit would make them share
+    one allowance."""
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        try:
+            sub = decode_token(header[7:]).get("sub")
+            if sub:
+                return f"user:{sub}"
+        except JWTError:
+            pass
+    return f"ip:{client_ip}"
 
 
 def _buckets(request: Request, principal: str) -> list[tuple[str, int, int]]:
@@ -51,8 +71,10 @@ def _buckets(request: Request, principal: str) -> list[tuple[str, int, int]]:
     client_ip = request.client.host if request.client else "unknown"
 
     buckets: list[tuple[str, int, int]] = [
-        (f"global:{client_ip}", settings.RATE_LIMIT_GLOBAL_PER_15MIN, GLOBAL_WINDOW)
+        (f"global:{principal}", settings.RATE_LIMIT_GLOBAL_PER_15MIN, GLOBAL_WINDOW)
     ]
+    if path.endswith("/auth/login"):
+        buckets.append((f"login:{client_ip}", settings.RATE_LIMIT_LOGIN_PER_MIN, LOGIN_WINDOW))
     if "/auth/" in path:
         buckets.append((f"auth:{client_ip}", settings.RATE_LIMIT_AUTH_PER_15MIN, AUTH_WINDOW))
     if "/uploads" in path:
@@ -75,7 +97,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
-        principal = request.headers.get("authorization", "")[-32:] or client_ip
+        principal = _principal(request, client_ip)
         buckets = _buckets(request, principal)
         now = int(time.time())
 

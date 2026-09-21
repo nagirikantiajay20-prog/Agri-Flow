@@ -91,8 +91,24 @@ async def create_booking(
         raise NotFoundError("Warehouse slot not found")
     if slot.status != "active":
         raise ConflictError("This slot is no longer accepting bookings")
+    from datetime import date as _date
 
-    # 2. Check slot availability / weight capacity.
+    if slot.slot_date < _date.today():
+        raise ConflictError("This slot is in the past and can no longer be booked")
+    if booking_date != slot.slot_date:
+        from app.core.exceptions import ValidationError
+
+        raise ValidationError(
+            "booking_date must match the selected slot's date",
+            details={"slot_date": str(slot.slot_date), "booking_date": str(booking_date)},
+        )
+
+    # 2. Check the slot's booking-count limit, then its weight capacity.
+    if slot.current_booking_count >= slot.max_bookings:
+        raise CapacityExceededError(
+            "This time slot has reached its booking limit — please choose another slot",
+            details={"max_bookings": slot.max_bookings},
+        )
     remaining = slot.capacity_kg - slot.booked_kg
     if quantity_kg > remaining:
         raise CapacityExceededError(
@@ -127,6 +143,7 @@ async def create_booking(
 
     # 5. Increment capacity — still inside the lock held on `slot`.
     slot.booked_kg += quantity_kg
+    slot.current_booking_count += 1
 
     await db.flush()
 
@@ -228,6 +245,7 @@ async def update_booking_status(
         slot = slot_result.scalar_one_or_none()
         if slot:
             slot.booked_kg = max(Decimal("0"), slot.booked_kg - booking.quantity_kg)
+            slot.current_booking_count = max(0, slot.current_booking_count - 1)
 
     await notification_service.notify_user(
         db,

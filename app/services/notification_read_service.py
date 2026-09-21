@@ -40,3 +40,14 @@ async def mark_all_read(db: AsyncSession, *, user_id: uuid.UUID) -> int:
     )
     await db.flush()
     return result.rowcount or 0
+
+
+async def unread_count(db: AsyncSession, *, user_id: uuid.UUID) -> int:
+    from sqlalchemy import func
+
+    result = await db.execute(
+        select(func.count())
+        .select_from(Notification)
+        .where(Notification.user_id == user_id, Notification.is_read.is_(False))
+    )
+    return int(result.scalar_one())

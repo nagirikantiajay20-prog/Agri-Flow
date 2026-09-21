@@ -45,14 +45,31 @@ _VALID_TRANSITIONS: dict[GrainSaleStatus, set[GrainSaleStatus]] = {
 
 
 async def create_grain_sale(
-    db: AsyncSession, *, farmer: User, grain_type: str, grade, raw_material_kg: Decimal, crop_id: uuid.UUID | None
+    db: AsyncSession,
+    *,
+    farmer: User,
+    grain_type: str,
+    grade,
+    raw_material_kg: Decimal,
+    crop_id: uuid.UUID | None,
+    offered_price_per_kg: Decimal | None = None,
+    notes: str | None = None,
 ) -> GrainSale:
+    if crop_id is not None:
+        from app.models.crop import Crop
+
+        owned = await db.execute(select(Crop.id).where(Crop.id == crop_id, Crop.farmer_id == farmer.id))
+        if owned.scalar_one_or_none() is None:
+            raise NotFoundError("Crop not found")
+
     sale = GrainSale(
         farmer_id=farmer.id,
         crop_id=crop_id,
         grain_type=grain_type,
         grade=grade,
         raw_material_kg=raw_material_kg,
+        offered_price_per_kg=offered_price_per_kg,
+        notes=notes,
         status=GrainSaleStatus.PENDING,
     )
     db.add(sale)

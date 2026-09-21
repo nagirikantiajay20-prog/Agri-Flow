@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import NotificationType, UserRole
 from app.models.ledger import Notification
 from app.models.user import User
-from app.services import event_service
+from app.services import event_service, push_service
 
 
 async def notify_user(
@@ -38,6 +38,20 @@ async def notify_user(
     )
     db.add(note)
     await db.flush()
+    push_service.enqueue(
+        db,
+        push_service.Push(
+            user_id=user_id,
+            title=title,
+            body=message,
+            data={
+                "notification_id": str(note.id),
+                "type": type_.value,
+                "reference_type": reference_type or "",
+                "reference_id": str(reference_id) if reference_id else "",
+            },
+        ),
+    )
     await event_service.publish_to_user(
         user_id,
         event_service.EVENT_NOTIFICATION,

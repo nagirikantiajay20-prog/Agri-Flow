@@ -124,7 +124,7 @@ async def set_market_rate(
 ):
     rate = await market_rate_service.set_rate(
         db, admin=admin, crop_type=body.crop_type, grade=body.grade,
-        price_per_kg=body.price_per_kg, effective_date=body.effective_date,
+        price_per_kg=body.price_per_kg, effective_date=body.effective_date, variety=body.variety,
     )
     return SuccessResponse(data=MarketRatePublic.model_validate(rate))
 

@@ -56,7 +56,8 @@ async def complete_visit(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     visit = await crop_service.complete_visit(
-        db, manager=manager, visit_id=visit_id, verified_acres=body.verified_acres, report=body.report
+        db, manager=manager, visit_id=visit_id, verified_acres=body.verified_acres, report=body.report,
+        diagnosis=body.diagnosis, recommendation=body.recommendation,
     )
     return SuccessResponse(data=FarmVisitPublic.model_validate(visit))
 

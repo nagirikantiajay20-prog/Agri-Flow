@@ -156,6 +156,7 @@ class MarketRate(Base, UUIDPKMixin, CreatedAtOnlyMixin):
         SAEnum(GrainGrade, name="market_rate_grade", native_enum=False, values_callable=lambda e: [i.value for i in e]),
         nullable=False,
     )
+    variety: Mapped[str | None] = mapped_column(String(100), nullable=True)
     price_per_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
     set_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

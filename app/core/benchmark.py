@@ -80,6 +80,34 @@ PAGES: tuple[Page, ...] = (
         requests=("GET /api/v1/farmers/me", "GET /api/v1/users/me"),
     ),
     Page(
+        name="Farmer app · home",
+        role="farmer",
+        requests=(
+            "GET /api/v1/farmer/dashboard",
+            "GET /api/v1/farmer/notifications/unread-count",
+        ),
+        notes="Android home screen: one aggregated call plus the badge count",
+    ),
+    Page(
+        name="Farmer app · seeds",
+        role="farmer",
+        requests=("GET /api/v1/farmer/seeds", "GET /api/v1/farmer/seeds/purchases?page=1&page_size=20"),
+    ),
+    Page(
+        name="Farmer app · grain & bookings",
+        role="farmer",
+        requests=(
+            "GET /api/v1/farmer/warehouses",
+            "GET /api/v1/farmer/grain-sales/bookings?page=1&page_size=20",
+            "GET /api/v1/farmer/grain-sales/offers?page=1&page_size=20",
+        ),
+    ),
+    Page(
+        name="Farmer app · account",
+        role="farmer",
+        requests=("GET /api/v1/farmer/profile", "GET /api/v1/farmer/transactions?page=1&page_size=20"),
+    ),
+    Page(
         name="Admin operational dashboard",
         role="super_admin",
         requests=(

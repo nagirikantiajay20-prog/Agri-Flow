@@ -34,7 +34,9 @@ def _sync_url() -> str:
 async def test_reconciliation_report_matches_when_schemas_agree():
     module = _load_script_module()
     report = module.build_report(_sync_url())
-    assert "Tables compared: 20 matched" in report
+    from app.core.database import Base
+
+    assert f"Tables compared: {len(Base.metadata.tables)} matched" in report
     assert "Column mismatches on matched tables: 0" in report
 
 

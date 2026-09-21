@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # ── Auth ─────────────────────────────────────────────────────────
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 20
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 14
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── Redis ────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     STORAGE_BUCKET_DOCUMENTS: str = "farmer-documents"
     STORAGE_BUCKET_VISITS: str = "farm-visits"
     STORAGE_BUCKET_SEEDS: str = "uploads"
+    STORAGE_BUCKET_AVATARS: str = "avatars"
+    STORAGE_BUCKET_CROP_SCANS: str = "crop-scans"
     UPLOAD_MAX_SIZE_MB: int = 10
 
     S3_BUCKET: str = ""
@@ -75,7 +77,7 @@ class Settings(BaseSettings):
     S3_PRESIGN_EXPIRES_SECONDS: int = 900
 
     # ── Rate limiting ────────────────────────────────────────────────
-    RATE_LIMIT_GLOBAL_PER_15MIN: int = 200
+    RATE_LIMIT_GLOBAL_PER_15MIN: int = 900
     RATE_LIMIT_AUTH_PER_15MIN: int = 20
     RATE_LIMIT_OTP_PER_MIN: int = 3
     RATE_LIMIT_WRITE_PER_5MIN: int = 30
@@ -91,6 +93,20 @@ class Settings(BaseSettings):
     CACHE_TTL_PUBLIC_SECONDS: int = 60
     CACHE_TTL_DASHBOARD_SECONDS: int = 10
     LIVE_UPDATES_ENABLED: bool = True
+
+    # ── Push notifications (FCM) ─────────────────────────────────────
+    FIREBASE_CREDENTIALS_JSON: str = ""
+    FIREBASE_CREDENTIALS_PATH: str = ""
+
+    # ── Weather advisory (Open-Meteo, keyless) ───────────────────────
+    WEATHER_ENABLED: bool = True
+    WEATHER_DEFAULT_LATITUDE: float = 15.8281
+    WEATHER_DEFAULT_LONGITUDE: float = 78.0373
+    WEATHER_CACHE_SECONDS: int = 900
+
+    # ── Farmer mobile app ────────────────────────────────────────────
+    RATE_LIMIT_LOGIN_PER_MIN: int = 5
+    UPLOAD_MAX_AVATAR_MB: int = 2
 
     # ── Metrics (gap-fix #9) ─────────────────────────────────────────
     METRICS_ENABLED: bool = True

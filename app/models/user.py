@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import BankStatus, UserRole, UserStatus
+from app.models.enums import BankStatus, DocumentType, UserRole, UserStatus
 from app.models.mixins import CreatedAtOnlyMixin, TimestampMixin, UUIDPKMixin
 
 
@@ -70,6 +70,10 @@ class FarmerProfile(Base, UUIDPKMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    farm_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    village: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
     acres_of_land: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
     crop_address: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -130,3 +134,29 @@ class RefreshToken(Base, UUIDPKMixin, CreatedAtOnlyMixin):
     replaced_by_token_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     user: Mapped["User"] = relationship(lazy="raise", back_populates="refresh_tokens")
+
+
+class FarmerDocument(Base, UUIDPKMixin, CreatedAtOnlyMixin):
+    __tablename__ = "farmer_documents"
+    __table_args__ = (Index("ix_farmer_documents_farmer_type", "farmer_id", "document_type"),)
+
+    farmer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    document_type: Mapped[DocumentType] = mapped_column(
+        SAEnum(DocumentType, name="document_type", native_enum=False, values_callable=lambda e: [i.value for i in e]),
+        nullable=False,
+    )
+    object_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class FcmDeviceToken(Base, UUIDPKMixin, TimestampMixin):
+    __tablename__ = "fcm_device_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    fcm_token: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    device_type: Mapped[str] = mapped_column(String(20), default="android", nullable=False)

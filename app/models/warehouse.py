@@ -8,7 +8,18 @@ app/services/booking_service.py.
 import uuid
 from datetime import date, time
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, Numeric, String, Text, Time, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,6 +34,8 @@ class Warehouse(Base, UUIDPKMixin, CreatedAtOnlyMixin):
 
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
+    location: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    contact_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     total_capacity_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     current_load_kg: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     manager_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -56,6 +69,8 @@ class WarehouseSlot(Base, UUIDPKMixin, CreatedAtOnlyMixin):
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
     capacity_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     booked_kg: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    max_bookings: Mapped[int] = mapped_column(Integer, default=10, server_default="10", nullable=False)
+    current_booking_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
 
     warehouse: Mapped["Warehouse"] = relationship(lazy="raise", back_populates="slots")

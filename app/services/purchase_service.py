@@ -82,6 +82,8 @@ async def purchase_seeds(
     warehouse_id: uuid.UUID | None,
     payment_method: str | None,
     upi_id: str | None,
+    grade: str | None = None,
+    pickup_date=None,
 ) -> SeedPurchase:
     # 1. Lock the seed row — FOR UPDATE, confirmed present in the legacy
     #    `purchase_seeds` RPC's migrations. Any other concurrent purchase
@@ -100,8 +102,10 @@ async def purchase_seeds(
             details={"available_kg": str(seed.stock_kg), "requested_kg": str(quantity_kg)},
         )
 
-    # 3. Decrement stock.
+    # 3. Move the quantity from sellable stock onto hold until the
+    #    order is paid for and collected (or fails and is restocked).
     seed.stock_kg -= quantity_kg
+    seed.on_hold_kg = (seed.on_hold_kg or Decimal("0")) + quantity_kg
 
     # 4. Insert purchase (Decimal arithmetic throughout — Master Plan §20).
     total_amount = (seed.price_per_kg * quantity_kg).quantize(Decimal("0.01"))
@@ -114,6 +118,8 @@ async def purchase_seeds(
         total_amount=total_amount,
         payment_method=payment_method,
         upi_id=upi_id,
+        grade=grade,
+        pickup_date=pickup_date,
         payment_status=PaymentStatus.PENDING,
         invoice_number=_generate_invoice_number("SP"),
     )
@@ -181,11 +187,20 @@ async def list_purchases_for_actor(db: AsyncSession, *, actor: User, params: Pag
 async def update_purchase_status(
     db: AsyncSession, *, admin: User, purchase_id: uuid.UUID, new_status: PaymentStatus
 ) -> SeedPurchase:
-    purchase = await db.get(SeedPurchase, purchase_id)
+    result = await db.execute(select(SeedPurchase).where(SeedPurchase.id == purchase_id).with_for_update())
+    purchase = result.scalar_one_or_none()
     if purchase is None:
         raise NotFoundError("Seed purchase not found")
     old_status = purchase.payment_status
+    if old_status != PaymentStatus.PENDING and new_status != old_status:
+        raise ConflictError(f"A {old_status.value} purchase cannot be moved to {new_status.value}")
     purchase.payment_status = new_status
+
+    if old_status == PaymentStatus.PENDING and new_status != PaymentStatus.PENDING:
+        seed = (await db.execute(select(Seed).where(Seed.id == purchase.seed_id).with_for_update())).scalar_one()
+        seed.on_hold_kg = max(Decimal("0"), (seed.on_hold_kg or Decimal("0")) - purchase.quantity_kg)
+        if new_status == PaymentStatus.FAILED:
+            seed.stock_kg += purchase.quantity_kg
 
     if new_status == PaymentStatus.PAID:
         await db.execute(
@@ -208,3 +223,30 @@ async def update_purchase_status(
     )
     await db.flush()
     return purchase
+
+
+async def list_seeds_filtered(
+    db: AsyncSession,
+    *,
+    q: str | None = None,
+    crop_type: str | None = None,
+    min_price: Decimal | None = None,
+    max_price: Decimal | None = None,
+    warehouse_id: uuid.UUID | None = None,
+    in_stock_only: bool = False,
+) -> list[Seed]:
+    query = select(Seed).where(Seed.is_active.is_(True))
+    if q:
+        pattern = f"%{q.strip()}%"
+        query = query.where(Seed.name.ilike(pattern) | Seed.variety.ilike(pattern))
+    if crop_type and crop_type.lower() != "all":
+        query = query.where(func.lower(Seed.crop_type) == crop_type.lower())
+    if min_price is not None:
+        query = query.where(Seed.price_per_kg >= min_price)
+    if max_price is not None:
+        query = query.where(Seed.price_per_kg <= max_price)
+    if warehouse_id is not None:
+        query = query.where(Seed.warehouse_id == warehouse_id)
+    if in_stock_only:
+        query = query.where(Seed.stock_kg > 0)
+    return list((await db.execute(query.order_by(Seed.name))).scalars().all())

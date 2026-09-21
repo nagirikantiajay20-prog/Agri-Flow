@@ -47,6 +47,8 @@ class VisitScheduleUpdate(BaseModel):
 class VisitCompleteRequest(BaseModel):
     verified_acres: Decimal = Field(gt=0)
     report: str = Field(min_length=1)
+    diagnosis: str | None = None
+    recommendation: str | None = None
 
 
 class FarmVisitCreate(BaseModel):

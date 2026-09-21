@@ -13,7 +13,14 @@ from app.models.ledger import (  # noqa: F401
     Transaction,
 )
 from app.models.seed import Seed, SeedPurchase, SeedWarehouse  # noqa: F401
-from app.models.user import FarmerProfile, RefreshToken, StaffProfile, User  # noqa: F401
+from app.models.user import (  # noqa: F401
+    FarmerDocument,
+    FarmerProfile,
+    FcmDeviceToken,
+    RefreshToken,
+    StaffProfile,
+    User,
+)
 from app.models.warehouse import BookingSlot, Warehouse, WarehouseInventory, WarehouseSlot  # noqa: F401
 
 __all__ = [
@@ -21,6 +28,8 @@ __all__ = [
     "FarmerProfile",
     "StaffProfile",
     "RefreshToken",
+    "FarmerDocument",
+    "FcmDeviceToken",
     "Crop",
     "FarmVisit",
     "Seed",

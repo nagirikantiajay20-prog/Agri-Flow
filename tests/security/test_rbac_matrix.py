@@ -244,6 +244,76 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {SUPER_ADMIN},
         {"crop_type": "Rice", "grade": "A", "price_per_kg": "20", "effective_date": "2026-01-01"},
     ),
+    # ── Farmer mobile app: farmer-only, staff tokens refused ──────────
+    (
+        "POST",
+        "/api/v1/farmer/auth/login",
+        {ANON, *ALL_ROLES},
+        {"phone": "9990001111", "password": "wrongpass1"},
+    ),
+    ("POST", "/api/v1/farmer/auth/refresh", {ANON, *ALL_ROLES}, {"refresh_token": "not-a-real-token"}),
+    ("POST", "/api/v1/farmer/auth/logout", set(ALL_ROLES), None),
+    ("GET", "/api/v1/farmer/profile", {FARMER}, None),
+    ("PATCH", "/api/v1/farmer/profile", {FARMER}, {"village": "Kalluru"}),
+    (
+        "POST",
+        "/api/v1/farmer/profile/bank-request",
+        {FARMER},
+        {"bank_name": "State Bank", "account_number": "10293847561", "ifsc_code": "SBIN0001234"},
+    ),
+    ("GET", "/api/v1/farmer/dashboard", {FARMER}, None),
+    ("GET", "/api/v1/farmer/market-rates", {FARMER}, None),
+    ("GET", "/api/v1/farmer/seeds", {FARMER}, None),
+    ("POST", "/api/v1/farmer/seeds/purchase", {FARMER}, {"seed_id": _ID, "quantity_kg": "1"}),
+    ("GET", "/api/v1/farmer/seeds/purchases", {FARMER}, None),
+    ("GET", "/api/v1/farmer/crops", {FARMER}, None),
+    (
+        "POST",
+        "/api/v1/farmer/crops",
+        {FARMER},
+        {"crop_type": "Rice", "acres": "1", "sowing_date": "2026-06-01"},
+    ),
+    ("GET", "/api/v1/farmer/crops/visits", {FARMER}, None),
+    ("PATCH", f"/api/v1/farmer/crops/{_ID}", {FARMER}, {"status": "Growing"}),
+    ("DELETE", f"/api/v1/farmer/crops/{_ID}", {FARMER}, None),
+    ("GET", f"/api/v1/farmer/crops/{_ID}/inspections", {FARMER}, None),
+    ("POST", f"/api/v1/farmer/crops/{_ID}/scan", {FARMER}, None),
+    ("GET", "/api/v1/farmer/warehouses", {FARMER}, None),
+    ("GET", f"/api/v1/farmer/warehouses/{_ID}/slots", {FARMER}, None),
+    (
+        "POST",
+        "/api/v1/farmer/grain-sales/book-slot",
+        {FARMER},
+        {
+            "warehouse_id": _ID,
+            "warehouse_slot_id": _ID,
+            "grain_type": "Rice",
+            "quantity_kg": "1",
+            "booking_date": "2026-01-01",
+            "delivery_address": "addr",
+        },
+    ),
+    ("GET", "/api/v1/farmer/grain-sales/bookings", {FARMER}, None),
+    ("DELETE", f"/api/v1/farmer/grain-sales/bookings/{_ID}", {FARMER}, None),
+    ("GET", "/api/v1/farmer/grain-sales/offers", {FARMER}, None),
+    (
+        "POST",
+        "/api/v1/farmer/grain-sales/offers",
+        {FARMER},
+        {"crop_type": "Cotton", "grade": "A", "quantity_kg": "100"},
+    ),
+    ("GET", "/api/v1/farmer/notifications", {FARMER}, None),
+    ("GET", "/api/v1/farmer/notifications/unread-count", {FARMER}, None),
+    ("PATCH", f"/api/v1/farmer/notifications/{_ID}/read", {FARMER}, None),
+    ("POST", "/api/v1/farmer/notifications/read-all", {FARMER}, None),
+    (
+        "POST",
+        "/api/v1/farmer/notifications/fcm-token",
+        {FARMER},
+        {"fcm_token": "fcm-token-for-rbac-matrix-test-0001", "device_type": "android"},
+    ),
+    ("GET", "/api/v1/farmer/transactions", {FARMER}, None),
+    ("POST", "/api/v1/farmer/documents/upload", {FARMER}, None),
 ]
 
 # Routes that carry no RBAC decision of their own.
@@ -345,6 +415,7 @@ async def test_every_route_is_covered():
             .replace("{warehouse_id}", "{id}")
             .replace("{slot_id}", "{id}")
             .replace("{transaction_id}", "{id}")
+            .replace("{crop_id}", "{id}")
         )
         for method in operations:
             pair = (method.upper(), template)

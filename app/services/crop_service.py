@@ -11,8 +11,29 @@ from app.schemas.common import PageParams
 from app.services import audit_service
 
 
-async def register_crop(db: AsyncSession, *, farmer: User, crop_type: str, acres, sowing_date) -> Crop:
-    crop = Crop(farmer_id=farmer.id, crop_type=crop_type, acres=acres, sowing_date=sowing_date)
+async def register_crop(
+    db: AsyncSession,
+    *,
+    farmer: User,
+    crop_type: str,
+    acres,
+    sowing_date,
+    crop_name: str | None = None,
+    harvest_date=None,
+    stage=None,
+    notes: str | None = None,
+) -> Crop:
+    crop = Crop(
+        farmer_id=farmer.id,
+        crop_type=crop_type,
+        crop_name=crop_name,
+        acres=acres,
+        sowing_date=sowing_date,
+        harvest_date=harvest_date,
+        notes=notes,
+    )
+    if stage is not None:
+        crop.stage = stage
     db.add(crop)
     await db.flush()
 
@@ -95,8 +116,20 @@ async def schedule_visit(db: AsyncSession, *, manager: User, visit_id: uuid.UUID
     return visit
 
 
-async def complete_visit(db: AsyncSession, *, manager: User, visit_id: uuid.UUID, verified_acres, report: str) -> FarmVisit:
-    from app.models.enums import VisitStatus
+async def complete_visit(
+    db: AsyncSession,
+    *,
+    manager: User,
+    visit_id: uuid.UUID,
+    verified_acres,
+    report: str,
+    diagnosis: str | None = None,
+    recommendation: str | None = None,
+) -> FarmVisit:
+    from datetime import date
+
+    from app.models.enums import NotificationType, VisitStatus
+    from app.services import notification_service
 
     visit = await db.get(FarmVisit, visit_id)
     if visit is None:
@@ -104,6 +137,23 @@ async def complete_visit(db: AsyncSession, *, manager: User, visit_id: uuid.UUID
     visit.status = VisitStatus.COMPLETED
     visit.verified_acres = verified_acres
     visit.report = report
+    visit.actual_date = visit.actual_date or date.today()
+    if diagnosis is not None:
+        visit.diagnosis = diagnosis
+    if recommendation is not None:
+        visit.recommendation = recommendation
+
+    crop = await db.get(Crop, visit.crop_id)
+    crop_label = (crop.crop_name or crop.crop_type) if crop else "your crop"
+    await notification_service.notify_user(
+        db,
+        user_id=visit.farmer_id,
+        title="Field inspection",
+        message=f"Officer review for {crop_label} is now available.",
+        type_=NotificationType.SUCCESS,
+        reference_type="farm_visit",
+        reference_id=visit.id,
+    )
     await audit_service.record(db, actor_id=manager.id, action="visit.complete", entity_type="farm_visit", entity_id=visit.id)
     await db.flush()
     return visit
@@ -236,3 +286,100 @@ async def send_visit_reminders(db: AsyncSession, *, actor: User, days_ahead: int
         )
     await db.flush()
     return len(visits)
+
+
+async def get_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> Crop:
+    """Ownership is part of the lookup itself, so another farmer's crop is
+    indistinguishable from a nonexistent one (no existence leak)."""
+    result = await db.execute(select(Crop).where(Crop.id == crop_id, Crop.farmer_id == farmer.id))
+    crop = result.scalar_one_or_none()
+    if crop is None:
+        raise NotFoundError("Crop not found")
+    return crop
+
+
+async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, updates: dict) -> Crop:
+    crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    old = {k: str(getattr(crop, k)) for k in updates}
+    for field, value in updates.items():
+        setattr(crop, field, value)
+    if crop.harvest_date and crop.harvest_date < crop.sowing_date:
+        from app.core.exceptions import ValidationError
+
+        raise ValidationError("harvest_date cannot be before sowing_date")
+    await audit_service.record(
+        db, actor_id=farmer.id, action="crop.update", entity_type="crop", entity_id=crop.id,
+        old_value=old, new_value={k: str(v) for k, v in updates.items()},
+    )
+    await db.flush()
+    return crop
+
+
+async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> None:
+    """Farm visits go with the crop (FK ON DELETE CASCADE). Grain sales are
+    financial records, so they are kept and simply detached from the crop
+    rather than deleted with it."""
+    from sqlalchemy import delete, update
+
+    from app.models.grain import GrainSale
+
+    crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    await db.execute(update(GrainSale).where(GrainSale.crop_id == crop.id).values(crop_id=None))
+    await db.execute(delete(FarmVisit).where(FarmVisit.crop_id == crop.id))
+    await db.execute(delete(Crop).where(Crop.id == crop.id))
+    await audit_service.record(db, actor_id=farmer.id, action="crop.delete", entity_type="crop", entity_id=crop_id)
+    await db.flush()
+
+
+async def list_own_visits(
+    db: AsyncSession, *, farmer: User, crop_id: uuid.UUID | None = None
+) -> list[FarmVisit]:
+    query = select(FarmVisit).where(FarmVisit.farmer_id == farmer.id)
+    if crop_id is not None:
+        query = query.where(FarmVisit.crop_id == crop_id)
+    query = query.order_by(FarmVisit.scheduled_date.asc().nullslast(), FarmVisit.created_at.desc())
+    return list((await db.execute(query)).scalars().all())
+
+
+def _visit_month_for(crop: Crop, on_day) -> int:
+    months = (on_day - crop.sowing_date).days // 30 + 1
+    return max(1, min(6, months))
+
+
+async def submit_scan(
+    db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, image_path: str, notes: str | None
+) -> FarmVisit:
+    from datetime import date
+
+    from app.models.enums import NotificationType, UserRole, VisitStatus
+    from app.services import notification_service
+
+    crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    today = date.today()
+    visit = FarmVisit(
+        crop_id=crop.id,
+        farmer_id=farmer.id,
+        visit_month=_visit_month_for(crop, today),
+        scheduled_date=today,
+        actual_date=today,
+        status=VisitStatus.PENDING_REVIEW,
+        notes=notes,
+        image_path=image_path,
+    )
+    db.add(visit)
+    await db.flush()
+
+    await notification_service.notify_roles(
+        db,
+        roles=[UserRole.MANAGER, UserRole.SUPER_ADMIN],
+        title="Crop scan awaiting review",
+        message=f"{farmer.name} submitted a field scan for {crop.crop_name or crop.crop_type}.",
+        type_=NotificationType.INFO,
+        reference_type="farm_visit",
+        reference_id=visit.id,
+    )
+    await audit_service.record(
+        db, actor_id=farmer.id, action="crop.scan", entity_type="farm_visit", entity_id=visit.id
+    )
+    await db.flush()
+    return visit

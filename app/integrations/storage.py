@@ -26,6 +26,8 @@ BUCKET_MAP = {
     "documents": settings.STORAGE_BUCKET_DOCUMENTS,
     "visits": settings.STORAGE_BUCKET_VISITS,
     "seeds": settings.STORAGE_BUCKET_SEEDS,
+    "avatars": settings.STORAGE_BUCKET_AVATARS,
+    "crop_scans": settings.STORAGE_BUCKET_CROP_SCANS,
 }
 
 
@@ -57,6 +59,23 @@ def _s3_read_url(key: str) -> str:
         Params={"Bucket": settings.S3_BUCKET, "Key": key},
         ExpiresIn=settings.S3_PRESIGN_EXPIRES_SECONDS,
     )
+
+
+def read_url(object_path: str | None) -> str | None:
+    """Turns a stored object path into a URL the client can fetch. With
+    S3 this is a short-lived signed URL unless S3_PUBLIC_BASE_URL is set,
+    so private KYC files are never exposed by a permanent link."""
+    if not object_path:
+        return None
+    if object_path.startswith(("http://", "https://")):
+        return object_path
+    if settings.STORAGE_PROVIDER == "s3":
+        if not (settings.S3_BUCKET and settings.S3_ACCESS_KEY_ID and settings.S3_SECRET_ACCESS_KEY):
+            return None
+        return _s3_read_url(object_path)
+    if settings.STORAGE_PROVIDER == "supabase" and settings.SUPABASE_URL:
+        return f"{settings.SUPABASE_URL}/storage/v1/object/public/{object_path}"
+    return None
 
 
 def presigned_download_url(object_path: str) -> str:
@@ -123,23 +142,32 @@ async def create_presigned_upload(*, bucket_key: str, file_name: str, content_ty
     raise ValidationError(f"Unsupported STORAGE_PROVIDER '{settings.STORAGE_PROVIDER}'")
 
 
-async def upload_bytes(*, bucket_key: str, file_name: str, content_type: str, data: bytes) -> dict:
+async def upload_bytes(
+    *,
+    bucket_key: str,
+    file_name: str,
+    content_type: str,
+    data: bytes,
+    object_name: str | None = None,
+    max_size_mb: int | None = None,
+    allowed_content_types: set[str] | None = None,
+) -> dict:
     """Server-side multipart upload, for clients that cannot use the
     presigned flow (the existing web form posts multipart/form-data, and
     mobile clients on flaky connections prefer a single request)."""
     if bucket_key not in BUCKET_MAP:
         raise ValidationError(f"Unknown bucket '{bucket_key}'")
-    if content_type not in ALLOWED_CONTENT_TYPES:
+    if content_type not in (allowed_content_types or ALLOWED_CONTENT_TYPES):
         raise ValidationError(f"Content type '{content_type}' is not allowed")
-    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
-    if len(data) > max_bytes:
-        raise ValidationError(f"File exceeds the {settings.UPLOAD_MAX_SIZE_MB} MB limit")
+    limit_mb = max_size_mb or settings.UPLOAD_MAX_SIZE_MB
+    if len(data) > limit_mb * 1024 * 1024:
+        raise ValidationError(f"File exceeds the {limit_mb} MB limit")
     if not data:
         raise ValidationError("File is empty")
 
     ext = _safe_extension(file_name)
     bucket = BUCKET_MAP[bucket_key]
-    object_name = f"{uuid.uuid4()}.{ext}"
+    object_name = f"{object_name}.{ext}" if object_name else f"{uuid.uuid4()}.{ext}"
     object_path = f"{bucket}/{object_name}"
 
     if settings.STORAGE_PROVIDER == "s3":

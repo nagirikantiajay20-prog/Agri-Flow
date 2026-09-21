@@ -2,6 +2,9 @@
 
 One resource-oriented REST API serving both the web app and the mobile app.
 
+> **Building the Android farmer app?** Start with [`docs/FARMER_APP_INTEGRATION.md`](docs/FARMER_APP_INTEGRATION.md) —
+> the `/api/v1/farmer` contract, database design, and a drop-in Flutter client.
+>
 > **Read [`docs/BACKEND_STATUS.md`](docs/BACKEND_STATUS.md) first.** It records
 > the completeness assessment against the live frontend, the 23 endpoints that
 > were missing, the RBAC and performance defects that were fixed, and what is

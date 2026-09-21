@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, UnauthorizedError, ValidationError
+from app.core.exceptions import ConflictError, ForbiddenError, UnauthorizedError, ValidationError
 from app.core.security import (
     create_access_token,
     generate_opaque_refresh_token,
@@ -69,9 +69,9 @@ async def authenticate(db: AsyncSession, *, phone: str, password: str) -> User:
     if user is None or not verify_password(password, user.password_hash):
         raise UnauthorizedError("Invalid phone number or password")
     if user.status == UserStatus.SUSPENDED:
-        raise UnauthorizedError("Account is suspended")
+        raise ForbiddenError("Account is suspended")
     if user.status == UserStatus.REJECTED:
-        raise UnauthorizedError("Account application was rejected")
+        raise ForbiddenError("Account application was rejected")
 
     # Lazy rehash (gap-fix #4): an account migrated from legacy Supabase
     # Auth carries its original bcrypt hash (scripts/migrate_legacy_identity.py)

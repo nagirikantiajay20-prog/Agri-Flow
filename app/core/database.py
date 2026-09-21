@@ -47,14 +47,21 @@ class Base(DeclarativeBase):
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency — yields a request-scoped session, commits on
-    success, rolls back on any exception, always closes."""
+    success, rolls back on any exception, always closes. Push
+    notifications queued during the request are sent only once the
+    commit has succeeded."""
+    from app.services import push_service
+
     async with AsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()
         except Exception:
             await session.rollback()
+            push_service.discard(session)
             raise
+        else:
+            push_service.dispatch_after_commit(push_service.drain(session))
         finally:
             await session.close()
 

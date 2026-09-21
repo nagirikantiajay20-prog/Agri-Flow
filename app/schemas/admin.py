@@ -43,6 +43,7 @@ class NotificationPublic(ORMBase):
 class MarketRateCreate(BaseModel):
     crop_type: str = Field(min_length=2, max_length=80)
     grade: GrainGrade
+    variety: str | None = Field(default=None, max_length=100)
     price_per_kg: Decimal = Field(gt=0)
     effective_date: date
 

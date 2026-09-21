@@ -45,6 +45,8 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "notification.read.own",
         "bank_change.request",
         "dashboard.farmer.read",
+        "document.upload.own",
+        "device.register.own",
     },
     UserRole.MANAGER: {
         "farmer.read", "farmer.create", "farmer.approve",
@@ -153,6 +155,23 @@ def require_any_permission(*permissions: str):
     async def _check(user: ActiveUser) -> User:
         if not any(role_has_permission(user.role, p) for p in permissions):
             raise ForbiddenError(f"Missing permission: one of {list(permissions)}")
+        return user
+
+    return _check
+
+
+def require_farmer(permission: str):
+    """Guard for the farmer mobile API. Every /farmer route is scoped to
+    "my own data", so a staff token is refused outright rather than being
+    allowed through and silently returning the wrong scope — and the
+    permission table still has the final say on what a farmer may do."""
+    _assert_known(permission)
+
+    async def _check(user: ActiveUser) -> User:
+        if user.role != UserRole.FARMER:
+            raise ForbiddenError("This endpoint is only available to farmer accounts")
+        if not role_has_permission(user.role, permission):
+            raise ForbiddenError(f"Missing permission: {permission}")
         return user
 
     return _check

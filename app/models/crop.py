@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import CropStatus, VisitStatus
+from app.models.enums import CropStage, CropStatus, VisitStatus
 from app.models.mixins import CreatedAtOnlyMixin, TimestampMixin, UUIDPKMixin
 
 # Auto-scheduled visit months per crop type — ported verbatim from the
@@ -46,12 +46,19 @@ class Crop(Base, UUIDPKMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     crop_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    crop_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     acres: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     sowing_date: Mapped[date] = mapped_column(Date, nullable=False)
     harvest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[CropStatus] = mapped_column(
         SAEnum(CropStatus, name="crop_status", native_enum=False, values_callable=lambda e: [i.value for i in e]),
         default=CropStatus.GROWING,
+        nullable=False,
+    )
+    stage: Mapped[CropStage] = mapped_column(
+        SAEnum(CropStage, name="crop_stage", native_enum=False, values_callable=lambda e: [i.value for i in e]),
+        default=CropStage.SOWING,
+        server_default=CropStage.SOWING.value,
         nullable=False,
     )
     current_month: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -90,5 +97,9 @@ class FarmVisit(Base, UUIDPKMixin, CreatedAtOnlyMixin):
     )
     verified_acres: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagnosis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     crop: Mapped["Crop"] = relationship(lazy="raise", back_populates="farm_visits")

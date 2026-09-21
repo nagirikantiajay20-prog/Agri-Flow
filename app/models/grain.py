@@ -40,7 +40,9 @@ class GrainSale(Base, UUIDPKMixin, TimestampMixin):
     wastage_kg: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     good_material_kg: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     price_per_kg: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    offered_price_per_kg: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[GrainSaleStatus] = mapped_column(
         SAEnum(GrainSaleStatus, name="grain_sale_status", native_enum=False, values_callable=lambda e: [i.value for i in e]),
         default=GrainSaleStatus.PENDING,

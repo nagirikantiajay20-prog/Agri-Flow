@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.enums import BankRequestStatus, BankStatus, UserStatus
 from app.schemas.admin import TransactionPublic
@@ -81,6 +81,14 @@ class FarmerAdminView(ORMBase):
 class FarmerCreateRequest(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     phone: str = Field(min_length=8, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_phone(cls, v: str) -> str:
+        from app.schemas.farmer_app import normalize_phone
+
+        return normalize_phone(v)
+
     email: EmailStr | None = None
     password: str = Field(min_length=8, max_length=128)
     address: str | None = None
