@@ -255,6 +255,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ("POST", "/api/v1/farmer/auth/logout", set(ALL_ROLES), None),
     ("GET", "/api/v1/farmer/profile", {FARMER}, None),
     ("PATCH", "/api/v1/farmer/profile", {FARMER}, {"village": "Kalluru"}),
+    ("PUT", "/api/v1/farmer/profile", {FARMER}, {"village": "Kalluru"}),
     (
         "POST",
         "/api/v1/farmer/profile/bank-request",
@@ -266,6 +267,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ("GET", "/api/v1/farmer/seeds", {FARMER}, None),
     ("POST", "/api/v1/farmer/seeds/purchase", {FARMER}, {"seed_id": _ID, "quantity_kg": "1"}),
     ("GET", "/api/v1/farmer/seeds/purchases", {FARMER}, None),
+    ("GET", f"/api/v1/farmer/seeds/{_ID}", {FARMER}, None),
     ("GET", "/api/v1/farmer/crops", {FARMER}, None),
     (
         "POST",
@@ -275,10 +277,12 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ),
     ("GET", "/api/v1/farmer/crops/visits", {FARMER}, None),
     ("PATCH", f"/api/v1/farmer/crops/{_ID}", {FARMER}, {"status": "Growing"}),
+    ("PUT", f"/api/v1/farmer/crops/{_ID}", {FARMER}, {"status": "Growing"}),
     ("DELETE", f"/api/v1/farmer/crops/{_ID}", {FARMER}, None),
     ("GET", f"/api/v1/farmer/crops/{_ID}/inspections", {FARMER}, None),
     ("POST", f"/api/v1/farmer/crops/{_ID}/scan", {FARMER}, None),
     ("GET", "/api/v1/farmer/warehouses", {FARMER}, None),
+    ("GET", f"/api/v1/farmer/warehouses/{_ID}", {FARMER}, None),
     ("GET", f"/api/v1/farmer/warehouses/{_ID}/slots", {FARMER}, None),
     (
         "POST",
@@ -305,7 +309,9 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ("GET", "/api/v1/farmer/notifications", {FARMER}, None),
     ("GET", "/api/v1/farmer/notifications/unread-count", {FARMER}, None),
     ("PATCH", f"/api/v1/farmer/notifications/{_ID}/read", {FARMER}, None),
+    ("PUT", f"/api/v1/farmer/notifications/{_ID}/read", {FARMER}, None),
     ("POST", "/api/v1/farmer/notifications/read-all", {FARMER}, None),
+    ("PUT", "/api/v1/farmer/notifications/read-all", {FARMER}, None),
     (
         "POST",
         "/api/v1/farmer/notifications/fcm-token",

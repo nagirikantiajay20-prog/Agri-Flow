@@ -35,6 +35,7 @@ async def unread_count(
 
 
 @router.patch("/{notification_id}/read", response_model=MessageResponse)
+@router.put("/{notification_id}/read", response_model=MessageResponse, include_in_schema=False)
 async def mark_read(
     notification_id: uuid.UUID,
     farmer: Annotated[User, Depends(require_farmer("notification.read.own"))],
@@ -45,6 +46,7 @@ async def mark_read(
 
 
 @router.post("/read-all", response_model=MessageResponse)
+@router.put("/read-all", response_model=MessageResponse, include_in_schema=False)
 async def mark_all_read(
     farmer: Annotated[User, Depends(require_farmer("notification.read.own"))],
     db: Annotated[AsyncSession, Depends(get_db)],

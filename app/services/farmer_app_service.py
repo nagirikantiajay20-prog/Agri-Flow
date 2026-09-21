@@ -180,7 +180,11 @@ async def dashboard(db: AsyncSession, *, farmer: User) -> dict:
         (
             await db.execute(
                 select(Crop)
-                .where(Crop.farmer_id == farmer.id, Crop.status == CropStatus.GROWING)
+                .where(
+                    Crop.farmer_id == farmer.id,
+                    Crop.status == CropStatus.GROWING,
+                    Crop.deleted_at.is_(None),
+                )
                 .order_by(Crop.created_at.desc())
             )
         ).scalars().all()

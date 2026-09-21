@@ -74,6 +74,7 @@ async def list_visits(
 
 
 @router.patch("/{crop_id}", response_model=SuccessResponse[s.CropOut])
+@router.put("/{crop_id}", response_model=SuccessResponse[s.CropOut], include_in_schema=False)
 async def update_crop(
     crop_id: uuid.UUID,
     body: s.CropUpdateIn,

@@ -118,3 +118,19 @@ async def purchase_history(
         for p, seed in rows
     ]
     return paginated(data, total, params)
+
+
+@router.get("/{seed_id}", response_model=SuccessResponse[s.SeedOut])
+async def get_seed(
+    seed_id: uuid.UUID,
+    _: Annotated[User, Depends(require_farmer("seed.read"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    # Registered last so it never shadows the literal /purchase(s) paths
+    # above — FastAPI matches routes in declaration order, and a
+    # {seed_id}: UUID route declared first would intercept "/purchases"
+    # and fail its UUID conversion instead of falling through.
+    seed = await db.get(Seed, seed_id)
+    if seed is None:
+        raise NotFoundError("Seed not found")
+    return SuccessResponse(data=seed_out(seed))

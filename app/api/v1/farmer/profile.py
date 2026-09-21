@@ -36,6 +36,7 @@ async def get_profile(
 
 
 @router.patch("", response_model=SuccessResponse[s.FarmerProfileOut])
+@router.put("", response_model=SuccessResponse[s.FarmerProfileOut], include_in_schema=False)
 async def update_profile(
     body: s.FarmerProfileUpdate,
     farmer: Annotated[User, Depends(require_farmer("profile.update.own"))],
