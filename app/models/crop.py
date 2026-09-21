@@ -7,9 +7,9 @@ checks, despite the name (Master Plan §1.6 correction). See
 app/models/grain.py.
 """
 import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -40,6 +40,7 @@ class Crop(Base, UUIDPKMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_crops_farmer_status", "farmer_id", "status"),
         Index("ix_crops_status_created", "status", "created_at"),
+        Index("ix_crops_farmer_deleted", "farmer_id", "deleted_at"),
     )
 
     farmer_id: Mapped[uuid.UUID] = mapped_column(
@@ -63,6 +64,7 @@ class Crop(Base, UUIDPKMixin, TimestampMixin):
     )
     current_month: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     farm_visits: Mapped[list["FarmVisit"]] = relationship(
         lazy="raise", back_populates="crop", cascade="all, delete-orphan", passive_deletes=True

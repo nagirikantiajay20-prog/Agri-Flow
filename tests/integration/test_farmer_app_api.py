@@ -156,8 +156,41 @@ async def test_crop_lifecycle_and_ownership(client, fake_redis, db_session):
     assert (await client.delete(f"{API}/crops/{crop_id}", headers=auth_headers(other))).status_code == 404
 
     assert len((await client.get(f"{API}/crops/{crop_id}/inspections", headers=headers)).json()["data"]) == 2
-    assert (await client.delete(f"{API}/crops/{crop_id}", headers=headers)).status_code == 200
-    assert (await client.get(f"{API}/crops/visits", headers=headers)).json()["data"] == []
+
+    # Soft delete: the crop disappears from the active list, but its visit
+    # history, and the crop row itself, are never physically destroyed.
+    deleted = await client.delete(f"{API}/crops/{crop_id}", headers=headers)
+    assert deleted.status_code == 200
+
+    active = (await client.get(f"{API}/crops", headers=headers)).json()["data"]
+    assert crop_id not in [c["id"] for c in active], "A deleted crop must not appear in the active list"
+
+    history = (await client.get(f"{API}/crops?include_closed=true", headers=headers)).json()["data"]
+    deleted_entry = next(c for c in history if c["id"] == crop_id)
+    assert deleted_entry["is_deleted"] is True
+    assert deleted_entry["deleted_at"] is not None
+
+    visits_still_present = (await client.get(f"{API}/crops/visits", headers=headers)).json()["data"]
+    assert len(visits_still_present) == 2, "Visit/inspection history must survive a crop soft-delete"
+
+    inspections_after_delete = (
+        await client.get(f"{API}/crops/{crop_id}/inspections", headers=headers)
+    ).json()["data"]
+    assert len(inspections_after_delete) == 2, "Inspection history must remain reachable by crop id"
+
+    # Idempotent: deleting an already-deleted crop is not an error.
+    redeleted = await client.delete(f"{API}/crops/{crop_id}", headers=headers)
+    assert redeleted.status_code == 200
+
+    # A deleted crop is frozen: no further edits or scans.
+    edit_attempt = await client.patch(f"{API}/crops/{crop_id}", headers=headers, json={"acres": 3})
+    assert edit_attempt.status_code == 409
+
+    scan_attempt = await client.post(
+        f"{API}/crops/{crop_id}/scan", headers=headers,
+        files={"image": ("leaf.jpg", b"\xff\xd8jpeg", "image/jpeg")},
+    )
+    assert scan_attempt.status_code == 409
 
 
 async def test_scan_uploads_image_and_creates_pending_review(client, fake_redis, db_session, monkeypatch):
@@ -281,6 +314,21 @@ async def test_slot_listing_booking_limit_and_cancellation(client, fake_redis, d
     await db_session.refresh(slot)
     assert slot.current_booking_count == 0 and slot.booked_kg == Decimal("0")
     assert (await client.post(f"{API}/grain-sales/book-slot", headers=auth_headers(second), json=payload)).status_code == 201
+
+    # "Cancel" is a status transition, never a row delete: the booking
+    # remains in history with status=cancelled, not physically removed.
+    from sqlalchemy import select
+
+    from app.models.warehouse import BookingSlot
+
+    cancelled_row = (
+        await db_session.execute(select(BookingSlot).where(BookingSlot.id == uuid.UUID(booking_id)))
+    ).scalar_one_or_none()
+    assert cancelled_row is not None, "A cancelled booking must remain in the database, not be deleted"
+    assert cancelled_row.status.value == "cancelled"
+
+    history = (await client.get(f"{API}/grain-sales/bookings?status=cancelled", headers=auth_headers(first))).json()["data"]
+    assert any(b["id"] == booking_id for b in history), "Cancelled bookings must remain visible in booking history"
 
 
 async def test_booking_date_must_match_the_slot(client, fake_redis, db_session):

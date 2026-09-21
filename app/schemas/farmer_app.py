@@ -239,6 +239,10 @@ class CropOut(BaseModel):
     lifecycle_status: str = Field(description="growing | harvested | failed | sold")
     notes: str | None
     created_at: datetime
+    deleted_at: datetime | None = Field(
+        default=None, description="Set when the farmer removed this crop; the record is kept for history"
+    )
+    is_deleted: bool = Field(default=False, description="Convenience flag: deleted_at is not null")
 
 
 class CropCreateIn(BaseModel):

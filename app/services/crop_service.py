@@ -57,7 +57,7 @@ async def register_crop(
 
 
 async def list_crops_for_actor(
-    db: AsyncSession, *, actor: User, params: PageParams | None = None
+    db: AsyncSession, *, actor: User, params: PageParams | None = None, include_deleted: bool = False
 ) -> tuple[list[Crop], int]:
     params = params or PageParams(page=1, page_size=100)
     query = select(Crop)
@@ -68,6 +68,9 @@ async def list_crops_for_actor(
     # manager/super_admin see all crops today; regional filtering via
     # staff_profiles.assigned_region is a deferred decision — see Master
     # Plan §5 / §14.
+    if not include_deleted:
+        query = query.where(Crop.deleted_at.is_(None))
+        count_query = count_query.where(Crop.deleted_at.is_(None))
     if params.status:
         query = query.where(Crop.status == params.status)
         count_query = count_query.where(Crop.status == params.status)
@@ -165,11 +168,10 @@ async def list_active_crops(
     from app.models.enums import CropStatus
 
     params = params or PageParams(page=1, page_size=100)
-    base = select(Crop).where(Crop.status == CropStatus.GROWING)
+    active = (Crop.status == CropStatus.GROWING) & Crop.deleted_at.is_(None)
+    base = select(Crop).where(active)
     total = (
-        await db.execute(
-            select(func.count()).select_from(Crop).where(Crop.status == CropStatus.GROWING)
-        )
+        await db.execute(select(func.count()).select_from(Crop).where(active))
     ).scalar_one()
     rows = (
         await db.execute(
@@ -290,7 +292,9 @@ async def send_visit_reminders(db: AsyncSession, *, actor: User, days_ahead: int
 
 async def get_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> Crop:
     """Ownership is part of the lookup itself, so another farmer's crop is
-    indistinguishable from a nonexistent one (no existence leak)."""
+    indistinguishable from a nonexistent one (no existence leak). Returns a
+    soft-deleted crop too — read-only history views (inspections) still
+    need to resolve it."""
     result = await db.execute(select(Crop).where(Crop.id == crop_id, Crop.farmer_id == farmer.id))
     crop = result.scalar_one_or_none()
     if crop is None:
@@ -298,8 +302,22 @@ async def get_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) ->
     return crop
 
 
-async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, updates: dict) -> Crop:
+async def get_own_active_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> Crop:
+    """Like get_own_crop, but rejects a soft-deleted crop — for any action
+    that would mutate the crop or attach a new record to it (edit, scan).
+    Callers that also do external I/O (e.g. uploading a scan image) should
+    call this BEFORE that I/O, so a deleted crop is rejected without
+    wasting the upload."""
+    from app.core.exceptions import ConflictError
+
     crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    if crop.deleted_at is not None:
+        raise ConflictError("This crop has been deleted and can no longer be edited")
+    return crop
+
+
+async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, updates: dict) -> Crop:
+    crop = await get_own_active_crop(db, farmer=farmer, crop_id=crop_id)
     old = {k: str(getattr(crop, k)) for k in updates}
     for field, value in updates.items():
         setattr(crop, field, value)
@@ -315,20 +333,25 @@ async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID,
     return crop
 
 
-async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> None:
-    """Farm visits go with the crop (FK ON DELETE CASCADE). Grain sales are
-    financial records, so they are kept and simply detached from the crop
-    rather than deleted with it."""
-    from sqlalchemy import delete, update
-
-    from app.models.grain import GrainSale
+async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> Crop:
+    """Soft delete: the crop, its farm visits/inspections, and any linked
+    grain sales are never physically removed — Farmer business records must
+    survive deletion for history/audit purposes. Marking `deleted_at` hides
+    the crop from active lists (list_crops_for_actor / list_active_crops)
+    while `include_closed=True` history views and direct-by-id lookups
+    (inspections, audit) still find it. Idempotent: deleting an
+    already-deleted crop is a no-op, not an error, so a retried request
+    from a flaky mobile connection never surfaces a spurious failure."""
+    from datetime import datetime, timezone
 
     crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
-    await db.execute(update(GrainSale).where(GrainSale.crop_id == crop.id).values(crop_id=None))
-    await db.execute(delete(FarmVisit).where(FarmVisit.crop_id == crop.id))
-    await db.execute(delete(Crop).where(Crop.id == crop.id))
-    await audit_service.record(db, actor_id=farmer.id, action="crop.delete", entity_type="crop", entity_id=crop_id)
-    await db.flush()
+    if crop.deleted_at is None:
+        crop.deleted_at = datetime.now(timezone.utc)
+        await audit_service.record(
+            db, actor_id=farmer.id, action="crop.delete", entity_type="crop", entity_id=crop_id
+        )
+        await db.flush()
+    return crop
 
 
 async def list_own_visits(
@@ -354,7 +377,10 @@ async def submit_scan(
     from app.models.enums import NotificationType, UserRole, VisitStatus
     from app.services import notification_service
 
-    crop = await get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    # Re-check here too (defense in depth) even though the router already
+    # calls get_own_active_crop before uploading the image — this function
+    # must stay safe to call on its own.
+    crop = await get_own_active_crop(db, farmer=farmer, crop_id=crop_id)
     today = date.today()
     visit = FarmVisit(
         crop_id=crop.id,

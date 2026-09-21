@@ -28,11 +28,13 @@ SCAN_TYPES = {"image/jpeg", "image/png"}
 async def list_crops(
     farmer: Annotated[User, Depends(require_farmer("crop.read"))],
     db: Annotated[AsyncSession, Depends(get_db)],
-    include_closed: bool = Query(False, description="Also return harvested / failed / sold crops"),
+    include_closed: bool = Query(
+        False, description="Also return harvested / failed / sold / deleted crops (history view)"
+    ),
 ):
     query = select(Crop).where(Crop.farmer_id == farmer.id)
     if not include_closed:
-        query = query.where(Crop.status == CropStatus.GROWING)
+        query = query.where(Crop.status == CropStatus.GROWING, Crop.deleted_at.is_(None))
     crops = (await db.execute(query.order_by(Crop.created_at.desc()).limit(MAX_OWN_CROPS))).scalars().all()
     return SuccessResponse(data=[crop_out(c) for c in crops])
 
@@ -91,8 +93,11 @@ async def delete_crop(
     farmer: Annotated[User, Depends(require_farmer("crop.create"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    # Soft delete — see crop_service.delete_own_crop. The crop, its farm
+    # visits and any linked grain sales are preserved; only hidden from
+    # the default (active) crop list.
     await crop_service.delete_own_crop(db, farmer=farmer, crop_id=crop_id)
-    return MessageResponse(message="Crop field deleted")
+    return MessageResponse(message="Crop field removed from your active list")
 
 
 @router.get("/{crop_id}/inspections", response_model=SuccessResponse[list[s.VisitOut]])
@@ -114,7 +119,8 @@ async def scan_crop(
     image: UploadFile = File(...),
     notes: str | None = Form(None),
 ):
-    await crop_service.get_own_crop(db, farmer=farmer, crop_id=crop_id)
+    # Reject a deleted crop before spending an upload on it.
+    await crop_service.get_own_active_crop(db, farmer=farmer, crop_id=crop_id)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     stored = await storage.upload_bytes(
         bucket_key="crop_scans",

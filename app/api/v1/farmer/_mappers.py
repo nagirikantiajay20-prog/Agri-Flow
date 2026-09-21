@@ -73,6 +73,8 @@ def crop_out(crop: Crop) -> s.CropOut:
         lifecycle_status=crop.status.value,
         notes=crop.notes,
         created_at=crop.created_at,
+        deleted_at=crop.deleted_at,
+        is_deleted=crop.deleted_at is not None,
     )
 
 
