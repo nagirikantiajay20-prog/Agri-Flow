@@ -13,7 +13,7 @@ Every JSON example below was captured from the running code, not written by hand
 
 | Area | Spec | Implemented |
 |---|---|---|
-| Farmer API endpoints | 32 | **32 / 32** |
+| Farmer API endpoints | 32 | **34 / 32** (+ `GET /seeds/{id}`, `GET /warehouses/{id}` single-resource detail views) |
 | Database tables | 16 | **16 / 16** (plus refresh tokens, audit log, inspections, staff profiles used by the web app) |
 | Storage areas | 4 (`seeds/`, `avatars/`, `documents/`, `crop_scans/`) | **4 / 4** |
 | Atomic seed purchase (`FOR UPDATE`) | required | ✅ row lock on the seed, stock moved onto hold |
@@ -21,14 +21,16 @@ Every JSON example below was captured from the running code, not written by hand
 | Identity from token only (no IDOR) | required | ✅ no route accepts a `farmer_id`; foreign resources return 404 |
 | Bank number masking | required | ✅ `*******7561` |
 | KYC files private | required | ✅ stored as paths, served as 15-minute signed URLs |
-| FCM push | required | ✅ token registry + dispatcher — **needs Firebase credentials to send** |
+| FCM push | required | ✅ **live and verified in production** — a real dry-run send against Google succeeded; `/health/ready` reports `"push": true` |
 | Weather advisory | required | ✅ live (Open-Meteo, no API key), cached 15 min |
 | Login rate limit 5/min, 60/min per farmer | required | ✅ |
+| Farmer records survive delete/cancel | required | ✅ crops soft-delete (`deleted_at`); bookings soft-cancel (`status=cancelled`) — neither is ever physically removed |
 
-**Still needed from you before these features work in production:**
-1. **S3 secret key + provider** for bucket `srisivasai-gallery` — until then every upload (documents, avatar, crop scan) returns `422 Storage is not configured`.
-2. **Firebase service-account JSON** — until then pushes are skipped silently; in-app notifications still work.
-3. An **SMS provider** if you want OTP-based password reset from the app.
+**Still needed from you before file uploads work in production:**
+1. **S3 secret access key** for bucket `srisivasai-gallery` (endpoint/region/access-key-id are already configured for Supabase Storage's S3-compatible API) — until then every upload (documents, avatar, crop scan) returns `422 Storage is not configured`.
+2. An **SMS provider** if you want OTP-based password reset from the app.
+
+FCM push no longer needs anything from you — it's configured and verified live.
 
 ### Where the backend intentionally differs from the spec
 
@@ -45,6 +47,8 @@ Read these before writing models — they are the only places the contract does 
 | Validation errors → `400` | Validation errors → **`422`** | FastAPI standard; body format is the spec's error envelope. |
 | `mandi_prices[].change_percentage` stored | **Computed** from the last two effective rates | A stored figure goes stale; this one can't. |
 | Cancel someone else's booking → 403 or 404 | **403** | |
+
+**HTTP method compatibility:** four routes also accept `PUT` where this guide documents `PATCH`/`POST` — profile update, crop update, and both notification read-state routes. This is unadvertised: the OpenAPI schema and every example below only shows the canonical verb, and Dart codegen from the schema will only ever see that one. It exists purely so the app isn't broken if the HTTP client happens to send `PUT` for a partial update; **use the documented verb**, the alias is a safety net, not the contract.
 
 ---
 
@@ -337,13 +341,16 @@ What happens: seed row locked → stock checked → quantity moved from `stock_k
   "warehouse_id": "a5a6c014-…", "created_at": "2026-09-21T06:13:41.168283Z", "seed": { "…": "as in GET /seeds" } }
 ```
 
+**`GET /seeds/{seed_id}`** — single-seed detail, same shape as one item of `GET /seeds`. `404` if it doesn't exist (works for a seed that's since been deactivated, so a farmer can still open an old purchase's seed detail).
+
 ### 5.4 Crops & inspections
 
-**`GET /crops`** — the farmer's active fields. `?include_closed=true` also returns harvested / failed / sold.
+**`GET /crops`** — the farmer's active fields (growing, not deleted). `?include_closed=true` also returns harvested / failed / sold / **deleted** crops — a full history view.
 ```json
 { "id": "21b8c1a7-…", "farmer_id": "40c5c6c7-…", "crop_name": "North Paddy", "crop_type": "Rice", "acres": 4.2,
   "sowing_date": "2026-06-23", "harvest_date": "2026-10-21", "status": "Growing",
-  "lifecycle_status": "growing", "notes": null, "created_at": "2026-09-21T06:13:39.176025Z" }
+  "lifecycle_status": "growing", "notes": null, "created_at": "2026-09-21T06:13:39.176025Z",
+  "deleted_at": null, "is_deleted": false }
 ```
 
 **`POST /crops`** → `201`
@@ -360,10 +367,19 @@ What happens: seed row locked → stock checked → quantity moved from `stock_k
               { "…": "month 4" } ] }, "message": "Crop registered" }
 ```
 
-**`PATCH /crops/{crop_id}`** — any of `crop_name, crop_type, acres, sowing_date, harvest_date, status, notes`. Harvest before sowing → `422`.
-**`DELETE /crops/{crop_id}`** — removes the crop and its visits; grain sales linked to it are kept (financial records) and simply unlinked.
-**`GET /crops/{crop_id}/inspections`** — visits for one crop.
-**`GET /crops/visits?crop_id=`** — all of the farmer's visits, soonest first.
+**`PATCH /crops/{crop_id}`** (also accepts `PUT`, undocumented alias — see §1) — any of `crop_name, crop_type, acres, sowing_date, harvest_date, status, notes`. Harvest before sowing → `422`. A deleted crop → `409`.
+
+**`DELETE /crops/{crop_id}`** — **soft delete.** The crop, its farm visits/inspections, and any linked grain sales are never physically removed — only hidden from the default (active) crop list. History and audit stay intact:
+```json
+{ "success": true, "message": "Crop field removed from your active list" }
+```
+- The crop still shows up with `GET /crops?include_closed=true`, flagged `"is_deleted": true, "deleted_at": "2026-09-21T10:04:12Z"`.
+- `GET /crops/{crop_id}/inspections` and `GET /crops/visits` keep returning its visit history after deletion.
+- Deleting an already-deleted crop is **not an error** — `200` again, so a retried request on a flaky connection never surfaces as a failure.
+- A deleted crop is frozen: `PATCH`/`PUT` and `POST .../scan` on it both return `409 CONFLICT`.
+
+**`GET /crops/{crop_id}/inspections`** — visits for one crop; works even after the crop is deleted.
+**`GET /crops/visits?crop_id=`** — all of the farmer's visits, soonest first; deleted crops' visits are still included.
 
 **`POST /crops/{crop_id}/scan`** — `multipart/form-data`: `image` (JPEG/PNG, ≤ 5 MB), `notes` (optional) → `201`
 ```json
@@ -379,6 +395,8 @@ Staff are notified; when an officer completes the review the visit becomes `comp
 { "id": "a5a6c014-…", "name": "Kurnool Central Warehouse Hub", "address": "NH44, Kurnool", "location": "Kurnool",
   "contact_number": "9502662924", "capacity": 100000.0, "available_capacity": 65000.0 }
 ```
+
+**`GET /warehouses/{warehouse_id}`** — single-warehouse detail, same shape as one item of `GET /warehouses`. `404` if it doesn't exist.
 
 **`GET /warehouses/{warehouse_id}/slots?date=2026-09-25`** — omit `date` for every upcoming slot. Only active, non-past slots are returned.
 ```json
