@@ -8,6 +8,7 @@ app.services.grain_sale_service.pay_grain_sale. This closes off the
 class of abuse that exists today in agriflow-web's ledgerService.js,
 which writes `transactions` directly from the frontend.
 """
+from datetime import date
 import uuid
 
 from sqlalchemy import func, select
@@ -27,12 +28,26 @@ from app.schemas.common import PageParams
 from app.services import audit_service, notification_service
 
 
-async def list_transactions_for_actor(db: AsyncSession, *, actor: User, params: PageParams) -> tuple[list[Transaction], int]:
+async def list_transactions_for_actor(
+    db: AsyncSession,
+    *,
+    actor: User,
+    params: PageParams,
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> tuple[list[Transaction], int]:
     query = select(Transaction)
     count_query = select(func.count()).select_from(Transaction)
     if actor.role.value == "farmer":
         query = query.where(Transaction.farmer_id == actor.id)
         count_query = count_query.where(Transaction.farmer_id == actor.id)
+
+    if from_date:
+        query = query.where(func.date(Transaction.created_at) >= from_date)
+        count_query = count_query.where(func.date(Transaction.created_at) >= from_date)
+    if to_date:
+        query = query.where(func.date(Transaction.created_at) <= to_date)
+        count_query = count_query.where(func.date(Transaction.created_at) <= to_date)
 
     total = (await db.execute(count_query)).scalar_one()
     query = (

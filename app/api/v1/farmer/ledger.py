@@ -1,6 +1,7 @@
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.farmer._mappers import paginated
@@ -20,8 +21,12 @@ async def list_transactions(
     params: Pagination,
     farmer: Annotated[User, Depends(require_farmer("transaction.read"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    from_date: date | None = Query(None, description="Filter transactions starting from date (YYYY-MM-DD)"),
+    to_date: date | None = Query(None, description="Filter transactions up to date (YYYY-MM-DD)"),
 ):
-    txns, total = await ledger_service.list_transactions_for_actor(db, actor=farmer, params=params)
+    txns, total = await ledger_service.list_transactions_for_actor(
+        db, actor=farmer, params=params, from_date=from_date, to_date=to_date
+    )
     return paginated([s.TransactionOut.model_validate(t, from_attributes=True) for t in txns], total, params)
 
 

@@ -235,7 +235,7 @@ class CropOut(BaseModel):
     acres: Number
     sowing_date: date
     harvest_date: date | None
-    status: CropStage = Field(description="Growth stage shown in the app")
+    status: str | CropStage = Field(description="Growth stage shown in the app")
     lifecycle_status: str = Field(description="growing | harvested | failed | sold")
     notes: str | None
     created_at: datetime
@@ -299,6 +299,9 @@ class WarehouseOut(BaseModel):
     contact_number: str | None
     capacity: Number
     available_capacity: Number
+    total_capacity_kg: Number | None = None
+    current_load_kg: Number | None = None
+    status: str | None = None
 
 
 class SlotOut(BaseModel):

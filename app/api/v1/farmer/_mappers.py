@@ -16,6 +16,9 @@ KG_PER_QUINTAL = Decimal("100")
 
 def profile_out(user: User, profile: FarmerProfile | None) -> s.FarmerProfileOut:
     p = profile
+    bank_st = "approved"
+    if p and p.bank_status:
+        bank_st = p.bank_status.value if hasattr(p.bank_status, "value") else str(p.bank_status)
     return s.FarmerProfileOut(
         farmer_id=user.id,
         name=user.name,
@@ -37,7 +40,7 @@ def profile_out(user: User, profile: FarmerProfile | None) -> s.FarmerProfileOut
         bank_account_number=s.mask_account(p.account_number) if p else None,
         bank_ifsc=p.ifsc_code if p else None,
         upi_id=p.upi_id if p else None,
-        bank_status=p.bank_status.value if p else "approved",
+        bank_status=bank_st,
         avatar_url=storage.read_url(p.profile_photo) if p else None,
         aadhaar_url=storage.read_url(p.aadhaar_card_url) if p else None,
         passbook_url=storage.read_url(p.bank_passbook_url) if p else None,
@@ -61,6 +64,7 @@ def seed_out(seed: Seed) -> s.SeedOut:
 
 
 def crop_out(crop: Crop) -> s.CropOut:
+    life_st = crop.status.value if hasattr(crop.status, "value") else str(crop.status)
     return s.CropOut(
         id=crop.id,
         farmer_id=crop.farmer_id,
@@ -70,7 +74,7 @@ def crop_out(crop: Crop) -> s.CropOut:
         sowing_date=crop.sowing_date,
         harvest_date=crop.harvest_date,
         status=crop.stage,
-        lifecycle_status=crop.status.value,
+        lifecycle_status=life_st,
         notes=crop.notes,
         created_at=crop.created_at,
         deleted_at=crop.deleted_at,
@@ -96,6 +100,16 @@ def visit_out(visit: FarmVisit) -> s.VisitOut:
 
 def warehouse_out(w: Warehouse) -> s.WarehouseOut:
     total = Decimal(w.total_capacity_kg)
+    used = Decimal(w.current_load_kg or 0)
+    avail = max(Decimal("0"), total - used)
+    ratio = avail / total if total > 0 else Decimal("0")
+    if avail <= 0:
+        status_str = "Full"
+    elif ratio < Decimal("0.4") or avail < Decimal("100000"):
+        status_str = "Moderate"
+    else:
+        status_str = "Available"
+
     return s.WarehouseOut(
         id=w.id,
         name=w.name,
@@ -103,7 +117,10 @@ def warehouse_out(w: Warehouse) -> s.WarehouseOut:
         location=w.location,
         contact_number=w.contact_number,
         capacity=total,
-        available_capacity=max(Decimal("0"), total - Decimal(w.current_load_kg or 0)),
+        available_capacity=avail,
+        total_capacity_kg=total,
+        current_load_kg=used,
+        status=status_str,
     )
 
 
@@ -153,6 +170,7 @@ def booking_out(b: BookingSlot, warehouse: Warehouse | None, slot: WarehouseSlot
 
 
 def offer_out(sale: GrainSale) -> s.GrainOfferOut:
+    sale_st = sale.status.value if hasattr(sale.status, "value") else str(sale.status)
     return s.GrainOfferOut(
         id=sale.id,
         crop_type=sale.grain_type,
@@ -163,7 +181,7 @@ def offer_out(sale: GrainSale) -> s.GrainOfferOut:
         good_material_kg=Decimal(sale.good_material_kg),
         wastage_kg=Decimal(sale.wastage_kg),
         total_amount=Decimal(sale.total_amount),
-        status=sale.status.value,
+        status=sale_st,
         notes=sale.notes,
         created_at=sale.created_at,
     )

@@ -82,7 +82,21 @@ async def create_booking(
     grain_sale_id: uuid.UUID | None,
     notes: str | None,
 ) -> BookingSlot:
-    # 1. Lock the warehouse slot row — this is the critical section.
+    # 1. Lock the warehouse and warehouse slot rows — critical section for concurrency.
+    wh_res = await db.execute(
+        select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
+    )
+    warehouse = wh_res.scalar_one_or_none()
+    if warehouse is None:
+        raise NotFoundError("Warehouse not found")
+
+    wh_avail = Decimal(warehouse.total_capacity_kg) - Decimal(warehouse.current_load_kg or 0)
+    if quantity_kg > wh_avail:
+        raise CapacityExceededError(
+            f"Warehouse overall capacity exceeded. Only {wh_avail} kg available in warehouse.",
+            details={"total_capacity_kg": str(warehouse.total_capacity_kg), "current_load_kg": str(warehouse.current_load_kg), "requested_kg": str(quantity_kg)},
+        )
+
     result = await db.execute(
         select(WarehouseSlot).where(WarehouseSlot.id == warehouse_slot_id).with_for_update()
     )
@@ -141,9 +155,10 @@ async def create_booking(
     )
     db.add(booking)
 
-    # 5. Increment capacity — still inside the lock held on `slot`.
+    # 5. Increment capacity atomically on both slot and warehouse.
     slot.booked_kg += quantity_kg
     slot.current_booking_count += 1
+    warehouse.current_load_kg = Decimal(warehouse.current_load_kg or 0) + quantity_kg
 
     await db.flush()
 
@@ -237,8 +252,9 @@ async def update_booking_status(
     if notes:
         booking.notes = notes
 
-    # Cancelling releases reserved capacity back to the slot.
-    if new_status == BookingStatus.CANCELLED and booking.warehouse_slot_id:
+    # Cancelling releases reserved capacity back to the slot and warehouse.
+    if new_status == BookingStatus.CANCELLED:
+      if booking.warehouse_slot_id:
         slot_result = await db.execute(
             select(WarehouseSlot).where(WarehouseSlot.id == booking.warehouse_slot_id).with_for_update()
         )
@@ -246,6 +262,13 @@ async def update_booking_status(
         if slot:
             slot.booked_kg = max(Decimal("0"), slot.booked_kg - booking.quantity_kg)
             slot.current_booking_count = max(0, slot.current_booking_count - 1)
+      if booking.warehouse_id:
+        wh_result = await db.execute(
+            select(Warehouse).where(Warehouse.id == booking.warehouse_id).with_for_update()
+        )
+        wh = wh_result.scalar_one_or_none()
+        if wh:
+            wh.current_load_kg = max(Decimal("0"), Decimal(wh.current_load_kg or 0) - Decimal(booking.quantity_kg))
 
     await notification_service.notify_user(
         db,
