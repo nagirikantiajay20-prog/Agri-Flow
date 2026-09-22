@@ -99,16 +99,21 @@ def _send_blocking(tokens: list[str], push: Push) -> list[str]:
 
 def _multicast(messaging, tokens: list[str], push: Push):
     """`tokens` are FCM registration tokens — what Flutter's
-    FirebaseMessaging.getToken() returns. firebase-admin 7 deprecates the
-    parameter in favour of `fids`, but those are Firebase Installation IDs,
-    a different identifier; passing registration tokens there would break
-    delivery. requirements.txt pins firebase-admin below 8 until the client
-    side moves to FIDs."""
+    FirebaseMessaging.getToken() returns."""
     return messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=push.title, body=push.body),
-        data=push.data,
-        android=messaging.AndroidConfig(priority="high"),
+        data={k: str(v) for k, v in push.data.items()},
+        android=messaging.AndroidConfig(
+            priority="high",
+            notification=messaging.AndroidNotification(
+                channel_id="high_importance_channel",
+                priority="high",
+                default_sound=True,
+                default_vibrate_timings=True,
+                click_action="FLUTTER_NOTIFICATION_CLICK",
+            ),
+        ),
     )
 
 

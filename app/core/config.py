@@ -14,8 +14,9 @@ JWT secret, wildcard CORS, or a Redis-less rate limiter.
 """
 import re
 from functools import lru_cache
-from typing import List
+from typing import Any, List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PLACEHOLDER_SECRETS = {"", "change-me-to-a-long-random-string", "dev-only-secret", "dev-only-secret-not-for-production"}
@@ -75,6 +76,18 @@ class Settings(BaseSettings):
     S3_SECRET_ACCESS_KEY: str = ""
     S3_PUBLIC_BASE_URL: str = ""
     S3_PRESIGN_EXPIRES_SECONDS: int = 900
+
+    @field_validator(
+        "STORAGE_PROVIDER", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY",
+        "S3_BUCKET", "S3_REGION", "S3_ENDPOINT_URL", "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_BASE_URL", "FIREBASE_CREDENTIALS_JSON",
+        mode="before"
+    )
+    @classmethod
+    def _strip_string_quotes(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v = v.strip('\'" \r\n\t')
+        return v
 
     # ── Rate limiting ────────────────────────────────────────────────
     RATE_LIMIT_GLOBAL_PER_15MIN: int = 900
