@@ -55,8 +55,21 @@ def discard(db: AsyncSession) -> None:
 
 
 def _credential_source() -> dict | str | None:
-    if settings.FIREBASE_CREDENTIALS_JSON:
-        return json.loads(settings.FIREBASE_CREDENTIALS_JSON)
+    raw = settings.FIREBASE_CREDENTIALS_JSON
+    if raw and raw.strip():
+        raw_str = raw.strip()
+        # Handle wrapped single or double quotes from environment
+        if (raw_str.startswith("'") and raw_str.endswith("'")) or (raw_str.startswith('"') and raw_str.endswith('"')):
+            raw_str = raw_str[1:-1].strip()
+        try:
+            parsed = json.loads(raw_str)
+            if isinstance(parsed, dict) and "private_key" in parsed:
+                # Normalize newlines in private key
+                parsed["private_key"] = parsed["private_key"].replace("\\n", "\n")
+            return parsed
+        except Exception as e:
+            logger.error("fcm_credential_json_parse_failed", error=str(e))
+
     return settings.FIREBASE_CREDENTIALS_PATH or settings.GOOGLE_APPLICATION_CREDENTIALS or None
 
 
@@ -64,11 +77,22 @@ def _credential_source() -> dict | str | None:
 def _firebase_app():
     source = _credential_source()
     if source is None:
+        logger.warning("fcm_no_credential_source_available")
         return None
     import firebase_admin
     from firebase_admin import credentials
 
-    return firebase_admin.initialize_app(credentials.Certificate(source), name="agriflow")
+    try:
+        return firebase_admin.get_app("agriflow")
+    except ValueError:
+        pass
+
+    try:
+        cred = credentials.Certificate(source)
+        return firebase_admin.initialize_app(cred, name="agriflow")
+    except Exception as exc:
+        logger.error("fcm_app_init_failed", error=str(exc))
+        return None
 
 
 def project_id() -> str | None:
@@ -78,7 +102,8 @@ def project_id() -> str | None:
 
 def is_enabled() -> bool:
     try:
-        return _firebase_app() is not None
+        app = _firebase_app()
+        return app is not None
     except Exception as exc:
         logger.error("fcm_init_failed", error=str(exc))
         return False
@@ -207,3 +232,58 @@ async def unregister_token(db: AsyncSession, *, user_id: uuid.UUID, fcm_token: s
         )
     )
     await db.flush()
+
+
+async def send_test_push(db: AsyncSession, *, user_id: uuid.UUID) -> dict:
+    """Diagnostic tool: sends an immediate FCM test push to the user's active device tokens."""
+    from app.models.user import FcmDeviceToken
+
+    rows = await db.execute(
+        select(FcmDeviceToken.fcm_token, FcmDeviceToken.device_type).where(
+            FcmDeviceToken.user_id == user_id
+        )
+    )
+    results = rows.all()
+    tokens = [r[0] for r in results]
+
+    if not is_enabled():
+        return {
+            "status": "disabled",
+            "message": "FCM is not enabled (Firebase credentials missing or invalid)",
+            "project_id": project_id(),
+            "token_count": len(tokens),
+        }
+
+    if not tokens:
+        return {
+            "status": "no_tokens",
+            "message": "No registered device tokens found for this user in fcm_device_tokens",
+            "project_id": project_id(),
+            "token_count": 0,
+        }
+
+    push = Push(
+        user_id=user_id,
+        title="FCM Diagnostic Test",
+        body="Real backend-to-device FCM delivery verified successfully.",
+        data={
+            "notification_id": str(uuid.uuid4()),
+            "type": "diagnostic",
+            "reference_type": "diagnostic",
+            "route": "/notifications",
+            "title": "FCM Diagnostic Test",
+            "body": "Real backend-to-device FCM delivery verified successfully.",
+        },
+    )
+
+    dead = await asyncio.to_thread(_send_blocking, tokens, push)
+    if dead:
+        await db.execute(delete(FcmDeviceToken).where(FcmDeviceToken.fcm_token.in_(dead)))
+
+    return {
+        "status": "sent",
+        "project_id": project_id(),
+        "token_count": len(tokens),
+        "tokens_preview": [f"******{t[-6:]}" if len(t) > 6 else t for t in tokens],
+        "dead_tokens_removed": len(dead),
+    }

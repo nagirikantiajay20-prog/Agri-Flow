@@ -65,3 +65,12 @@ async def register_fcm_token(
         db, user_id=farmer.id, fcm_token=body.fcm_token, device_type=body.device_type
     )
     return MessageResponse(message="Device registered for push notifications")
+
+
+@router.post("/test-fcm", response_model=SuccessResponse[dict])
+async def trigger_test_fcm(
+    farmer: Annotated[User, Depends(require_farmer("device.register.own"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    result = await push_service.send_test_push(db, user_id=farmer.id)
+    return SuccessResponse(data=result, message="Test push dispatched")
