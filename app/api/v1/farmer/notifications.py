@@ -10,7 +10,10 @@ from app.core.dependencies import Pagination, require_farmer
 from app.models.user import User
 from app.schemas import farmer_app as s
 from app.schemas.common import MessageResponse, PaginatedResponse, SuccessResponse
+from app.core.logging import get_logger
 from app.services import notification_read_service, push_service
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/notifications", tags=["farmer · notifications"])
 
@@ -61,6 +64,14 @@ async def register_fcm_token(
     farmer: Annotated[User, Depends(require_farmer("device.register.own"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    token_preview = f"******{body.fcm_token[-6:]}" if len(body.fcm_token) > 6 else body.fcm_token
+    logger.info(
+        "fcm_token_registration_received",
+        user_id=str(farmer.id),
+        user_phone=farmer.phone,
+        token_fingerprint=token_preview,
+        device_type=body.device_type,
+    )
     await push_service.register_token(
         db, user_id=farmer.id, fcm_token=body.fcm_token, device_type=body.device_type
     )
@@ -72,5 +83,6 @@ async def trigger_test_fcm(
     farmer: Annotated[User, Depends(require_farmer("device.register.own"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    logger.info("fcm_test_push_requested", user_id=str(farmer.id), user_phone=farmer.phone)
     result = await push_service.send_test_push(db, user_id=farmer.id)
     return SuccessResponse(data=result, message="Test push dispatched")
