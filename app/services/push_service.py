@@ -94,16 +94,33 @@ def _send_blocking(tokens: list[str], push: Push) -> list[str]:
         warnings.filterwarnings("ignore", message="MulticastMessage.tokens is deprecated")
         message = _multicast(messaging, tokens, push)
     response = messaging.send_each_for_multicast(message, app=_firebase_app())
+    logger.info(
+        "fcm_send_response",
+        success_count=response.success_count,
+        failure_count=response.failure_count,
+        token_count=len(tokens),
+    )
+    for idx, resp in enumerate(response.responses):
+        if not resp.success:
+            logger.warning(
+                "fcm_single_token_error",
+                index=idx,
+                error=str(resp.exception),
+                error_type=type(resp.exception).__name__,
+            )
     return _dead_tokens(tokens, response)
 
 
 def _multicast(messaging, tokens: list[str], push: Push):
     """`tokens` are FCM registration tokens — what Flutter's
     FirebaseMessaging.getToken() returns."""
+    data_dict = {k: str(v) for k, v in push.data.items()}
+    data_dict.setdefault("title", push.title)
+    data_dict.setdefault("body", push.body)
     return messaging.MulticastMessage(
         tokens=tokens,
         notification=messaging.Notification(title=push.title, body=push.body),
-        data={k: str(v) for k, v in push.data.items()},
+        data=data_dict,
         android=messaging.AndroidConfig(
             priority="high",
             notification=messaging.AndroidNotification(
@@ -139,10 +156,18 @@ async def _deliver(pushes: list[Push]) -> None:
                     select(FcmDeviceToken.fcm_token).where(FcmDeviceToken.user_id == push.user_id)
                 )
                 tokens = [r[0] for r in rows.all()]
+                logger.info(
+                    "fcm_dispatch_attempt",
+                    user_id=str(push.user_id),
+                    token_count=len(tokens),
+                    title=push.title,
+                )
                 if not tokens:
+                    logger.warning("fcm_no_tokens_found_for_user", user_id=str(push.user_id))
                     continue
                 dead = await asyncio.to_thread(_send_blocking, tokens, push)
                 if dead:
+                    logger.info("fcm_removing_dead_tokens", dead_count=len(dead))
                     await db.execute(delete(FcmDeviceToken).where(FcmDeviceToken.fcm_token.in_(dead)))
     except Exception as exc:
         logger.error("fcm_delivery_failed", error=str(exc), count=len(pushes))
