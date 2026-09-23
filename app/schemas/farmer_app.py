@@ -269,7 +269,7 @@ class CropOut(BaseModel):
 class CropCreateIn(BaseModel):
     crop_name: str | None = Field(default=None, max_length=100)
     crop_type: str = Field(min_length=2, max_length=80)
-    acres: Decimal = Field(gt=0, le=100000)
+    acres: Decimal = Field(gt=0, le=10000)
     sowing_date: date
     harvest_date: date | None = None
     status: CropStage = CropStage.SOWING
@@ -280,7 +280,7 @@ class CropCreateIn(BaseModel):
 class CropUpdateIn(_Strict):
     crop_name: str | None = Field(default=None, max_length=100)
     crop_type: str | None = Field(default=None, min_length=2, max_length=80)
-    acres: Decimal | None = Field(default=None, gt=0, le=100000)
+    acres: Decimal | None = Field(default=None, gt=0, le=10000)
     sowing_date: date | None = None
     harvest_date: date | None = None
     status: CropStage | None = None
