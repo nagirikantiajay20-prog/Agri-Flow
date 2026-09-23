@@ -29,12 +29,12 @@ async def list_crops(
     farmer: Annotated[User, Depends(require_farmer("crop.read"))],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_closed: bool = Query(
-        False, description="Also return harvested / failed / sold / deleted crops (history view)"
+        False, description="Also return harvested / failed / sold crops (history view)"
     ),
 ):
-    query = select(Crop).where(Crop.farmer_id == farmer.id)
+    query = select(Crop).where(Crop.farmer_id == farmer.id, Crop.deleted_at.is_(None))
     if not include_closed:
-        query = query.where(Crop.status == CropStatus.GROWING, Crop.deleted_at.is_(None))
+        query = query.where(Crop.status == CropStatus.GROWING)
     crops = (await db.execute(query.order_by(Crop.created_at.desc()).limit(MAX_OWN_CROPS))).scalars().all()
     return SuccessResponse(data=[crop_out(c) for c in crops])
 
