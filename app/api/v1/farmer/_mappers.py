@@ -18,6 +18,7 @@ from app.models.enums import BankRequestStatus
 from app.models.ledger import BankChangeRequest
 
 
+
 def profile_out(
     user: User,
     profile: FarmerProfile | None,
