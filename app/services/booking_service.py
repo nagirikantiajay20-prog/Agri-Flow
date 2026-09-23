@@ -74,7 +74,7 @@ async def create_booking(
     *,
     farmer: User,
     warehouse_id: uuid.UUID,
-    warehouse_slot_id: uuid.UUID,
+    warehouse_slot_id: uuid.UUID | None = None,
     booking_date,
     delivery_address: str,
     grain_type: str,
@@ -82,7 +82,7 @@ async def create_booking(
     grain_sale_id: uuid.UUID | None,
     notes: str | None,
 ) -> BookingSlot:
-    # 1. Lock the warehouse and warehouse slot rows — critical section for concurrency.
+    # 1. Lock the warehouse row — critical section for concurrency.
     wh_res = await db.execute(
         select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
     )
@@ -97,40 +97,71 @@ async def create_booking(
             details={"total_capacity_kg": str(warehouse.total_capacity_kg), "current_load_kg": str(warehouse.current_load_kg), "requested_kg": str(quantity_kg)},
         )
 
-    result = await db.execute(
-        select(WarehouseSlot).where(WarehouseSlot.id == warehouse_slot_id).with_for_update()
-    )
-    slot = result.scalar_one_or_none()
-    if slot is None or slot.warehouse_id != warehouse_id:
-        raise NotFoundError("Warehouse slot not found")
-    if slot.status != "active":
-        raise ConflictError("This slot is no longer accepting bookings")
     from datetime import date as _date
 
-    if slot.slot_date < _date.today():
-        raise ConflictError("This slot is in the past and can no longer be booked")
-    if booking_date != slot.slot_date:
-        from app.core.exceptions import ValidationError
-
-        raise ValidationError(
-            "booking_date must match the selected slot's date",
-            details={"slot_date": str(slot.slot_date), "booking_date": str(booking_date)},
+    # 2. Lock and resolve the time slot row (transaction-safe)
+    if warehouse_slot_id is None:
+        slot_res = await db.execute(
+            select(WarehouseSlot)
+            .where(
+                WarehouseSlot.warehouse_id == warehouse_id,
+                WarehouseSlot.slot_date == booking_date,
+                WarehouseSlot.status == "active",
+            )
+            .order_by(WarehouseSlot.start_time)
+            .with_for_update()
         )
+        slots = list(slot_res.scalars().all())
+        if not slots:
+            raise NotFoundError(f"No active slots available for this warehouse on {booking_date}")
 
-    # 2. Check the slot's booking-count limit, then its weight capacity.
+        valid_slot = None
+        for s in slots:
+            rem = Decimal(s.capacity_kg) - Decimal(s.booked_kg)
+            if rem >= quantity_kg and s.current_booking_count < s.max_bookings:
+                valid_slot = s
+                break
+        if valid_slot is None:
+            raise CapacityExceededError(
+                f"No slot on {booking_date} has sufficient remaining capacity for {quantity_kg} kg.",
+                details={"booking_date": str(booking_date), "requested_kg": str(quantity_kg)},
+            )
+        slot = valid_slot
+        warehouse_slot_id = slot.id
+    else:
+        result = await db.execute(
+            select(WarehouseSlot).where(WarehouseSlot.id == warehouse_slot_id).with_for_update()
+        )
+        slot = result.scalar_one_or_none()
+        if slot is None or slot.warehouse_id != warehouse_id:
+            raise NotFoundError("Warehouse slot not found")
+        if slot.status != "active":
+            raise ConflictError("This slot is no longer accepting bookings")
+
+        if slot.slot_date < _date.today():
+            raise ConflictError("This slot is in the past and can no longer be booked")
+        if booking_date != slot.slot_date:
+            from app.core.exceptions import ValidationError
+
+            raise ValidationError(
+                "booking_date must match the selected slot's date",
+                details={"slot_date": str(slot.slot_date), "booking_date": str(booking_date)},
+            )
+
+    # 3. Check the slot's booking-count limit, then its weight capacity.
     if slot.current_booking_count >= slot.max_bookings:
         raise CapacityExceededError(
             "This time slot has reached its booking limit — please choose another slot",
             details={"max_bookings": slot.max_bookings},
         )
-    remaining = slot.capacity_kg - slot.booked_kg
+    remaining = Decimal(slot.capacity_kg) - Decimal(slot.booked_kg)
     if quantity_kg > remaining:
         raise CapacityExceededError(
             f"Only {remaining} kg remaining in this slot",
             details={"remaining_kg": str(remaining), "requested_kg": str(quantity_kg)},
         )
 
-    # 3. Prevent duplicate booking: same farmer, same slot, still pending/confirmed.
+    # 4. Prevent duplicate booking: same farmer, same slot, still pending/confirmed.
     dup = await db.execute(
         select(BookingSlot).where(
             BookingSlot.farmer_id == farmer.id,

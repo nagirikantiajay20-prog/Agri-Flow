@@ -112,6 +112,18 @@ class FarmerProfileOut(BaseModel):
     aadhaar_url: str | None = Field(description="Short-lived signed URL")
     passbook_url: str | None = Field(description="Short-lived signed URL")
     land_proof_url: str | None = Field(description="Short-lived signed URL")
+    pending_bank_request: PendingBankRequestOut | None = None
+
+
+class PendingBankRequestOut(BaseModel):
+    request_id: uuid.UUID
+    bank_name: str | None = None
+    masked_account_number: str | None = Field(default=None, description="Masked account number")
+    ifsc_code: str | None = None
+    upi_id: str | None = None
+    status: str
+    requested_at: datetime
+    admin_notes: str | None = None
 
 
 class FarmerLoginResponse(BaseModel):
@@ -152,6 +164,15 @@ class BankChangeIn(BaseModel):
     account_number: str = Field(pattern=r"^\d{9,18}$")
     ifsc_code: str
     upi_id: str | None = Field(default=None, max_length=100)
+
+    @field_validator("upi_id", mode="before")
+    @classmethod
+    def _normalize_upi(cls, v: str | None) -> str | None:
+        if v is not None and isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+        return v
 
     @field_validator("ifsc_code")
     @classmethod
@@ -321,7 +342,7 @@ class SlotOut(BaseModel):
 
 class BookSlotIn(BaseModel):
     warehouse_id: uuid.UUID
-    warehouse_slot_id: uuid.UUID
+    warehouse_slot_id: uuid.UUID | None = None
     grain_type: str = Field(min_length=2, max_length=80)
     quantity_kg: Decimal = Field(gt=0, le=10000000)
     booking_date: date

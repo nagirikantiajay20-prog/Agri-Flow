@@ -27,12 +27,29 @@ async def _load(db: AsyncSession, farmer: User) -> FarmerProfile:
     return profile
 
 
+import uuid
+
+from app.models.ledger import BankChangeRequest
+
+
+async def _load_latest_bank_request(db: AsyncSession, farmer_id: uuid.UUID) -> BankChangeRequest | None:
+    result = await db.execute(
+        select(BankChangeRequest)
+        .where(BankChangeRequest.farmer_id == farmer_id)
+        .order_by(BankChangeRequest.requested_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 @router.get("", response_model=SuccessResponse[s.FarmerProfileOut])
 async def get_profile(
     farmer: Annotated[User, Depends(require_farmer("profile.read.own"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return SuccessResponse(data=profile_out(farmer, await _load(db, farmer)))
+    profile = await _load(db, farmer)
+    latest_bank_req = await _load_latest_bank_request(db, farmer.id)
+    return SuccessResponse(data=profile_out(farmer, profile, latest_bank_request=latest_bank_req))
 
 
 @router.patch("", response_model=SuccessResponse[s.FarmerProfileOut])
@@ -57,7 +74,8 @@ async def update_profile(
         db, actor_id=farmer.id, action="profile.update", entity_type="user", entity_id=farmer.id,
         new_value={k: str(v) for k, v in updates.items()},
     )
-    return SuccessResponse(data=profile_out(farmer, profile), message="Profile updated")
+    latest_bank_req = await _load_latest_bank_request(db, farmer.id)
+    return SuccessResponse(data=profile_out(farmer, profile, latest_bank_request=latest_bank_req), message="Profile updated")
 
 
 @router.post("/bank-request", response_model=SuccessResponse[s.BankChangeOut], status_code=201)

@@ -36,11 +36,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         # exc.errors() can contain raw exception objects in `ctx` for
         # custom @field_validator errors (e.g. ValueError) — these are
         # not JSON-serializable on their own, hence jsonable_encoder.
+        errors = jsonable_encoder(exc.errors())
+        for err in errors:
+            loc = err.get("loc", ())
+            if any(k in loc for k in ("account_number", "password", "token", "aadhaar", "secret")):
+                if "input" in err:
+                    err["input"] = "[REDACTED]"
         return JSONResponse(
             status_code=422,
             content=_envelope(
                 "VALIDATION_ERROR", "Request validation failed",
-                {"errors": jsonable_encoder(exc.errors())}, request,
+                {"errors": errors}, request,
             ),
         )
 

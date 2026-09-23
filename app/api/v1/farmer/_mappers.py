@@ -14,11 +14,38 @@ from app.schemas.common import PaginatedResponse, Pagination
 KG_PER_QUINTAL = Decimal("100")
 
 
-def profile_out(user: User, profile: FarmerProfile | None) -> s.FarmerProfileOut:
+from app.models.enums import BankRequestStatus
+from app.models.ledger import BankChangeRequest
+
+
+def profile_out(
+    user: User,
+    profile: FarmerProfile | None,
+    latest_bank_request: BankChangeRequest | None = None,
+) -> s.FarmerProfileOut:
     p = profile
     bank_st = "approved"
     if p and p.bank_status:
         bank_st = p.bank_status.value if hasattr(p.bank_status, "value") else str(p.bank_status)
+
+    pending_req: s.PendingBankRequestOut | None = None
+    if latest_bank_request and latest_bank_request.status in (BankRequestStatus.PENDING, BankRequestStatus.REJECTED):
+        status_str = (
+            latest_bank_request.status.value
+            if hasattr(latest_bank_request.status, "value")
+            else str(latest_bank_request.status)
+        )
+        pending_req = s.PendingBankRequestOut(
+            request_id=latest_bank_request.id,
+            bank_name=latest_bank_request.bank_name,
+            masked_account_number=s.mask_account(latest_bank_request.account_number),
+            ifsc_code=latest_bank_request.ifsc_code,
+            upi_id=latest_bank_request.upi_id,
+            status=status_str,
+            requested_at=latest_bank_request.requested_at,
+            admin_notes=latest_bank_request.admin_notes,
+        )
+
     return s.FarmerProfileOut(
         farmer_id=user.id,
         name=user.name,
@@ -45,6 +72,7 @@ def profile_out(user: User, profile: FarmerProfile | None) -> s.FarmerProfileOut
         aadhaar_url=storage.read_url(p.aadhaar_card_url) if p else None,
         passbook_url=storage.read_url(p.bank_passbook_url) if p else None,
         land_proof_url=storage.read_url(p.land_ownership_url) if p else None,
+        pending_bank_request=pending_req,
     )
 
 
