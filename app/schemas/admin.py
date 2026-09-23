@@ -94,6 +94,8 @@ class AuditLogPublic(ORMBase):
     action: str
     entity_type: str | None
     entity_id: uuid.UUID | None
+    old_value: dict | None = None
+    new_value: dict | None = None
     details: str | None
     created_at: datetime
 

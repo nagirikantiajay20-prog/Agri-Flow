@@ -318,22 +318,33 @@ async def get_own_active_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.U
 
 async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, updates: dict) -> Crop:
     crop = await get_own_active_crop(db, farmer=farmer, crop_id=crop_id)
-    old = {k: str(getattr(crop, k)) for k in updates}
+    farmer_comment = updates.pop("farmer_comment", None)
+    old = {k: str(getattr(crop, k)) for k in updates if hasattr(crop, k)}
     for field, value in updates.items():
-        setattr(crop, field, value)
+        if hasattr(crop, field):
+            setattr(crop, field, value)
     if crop.harvest_date and crop.harvest_date < crop.sowing_date:
         from app.core.exceptions import ValidationError
 
         raise ValidationError("harvest_date cannot be before sowing_date")
+    new_val = {k: str(v) for k, v in updates.items()}
+    if farmer_comment:
+        new_val["farmer_comment"] = farmer_comment
     await audit_service.record(
-        db, actor_id=farmer.id, action="crop.update", entity_type="crop", entity_id=crop.id,
-        old_value=old, new_value={k: str(v) for k, v in updates.items()},
+        db,
+        actor_id=farmer.id,
+        action="crop.update",
+        entity_type="crop",
+        entity_id=crop.id,
+        old_value=old,
+        new_value=new_val,
+        details=farmer_comment,
     )
     await db.flush()
     return crop
 
 
-async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID) -> Crop:
+async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, reason: str | None = None) -> Crop:
     """Soft delete: the crop, its farm visits/inspections, and any linked
     grain sales are never physically removed — Farmer business records must
     survive deletion for history/audit purposes. Marking `deleted_at` hides
@@ -348,7 +359,13 @@ async def delete_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID)
     if crop.deleted_at is None:
         crop.deleted_at = datetime.now(timezone.utc)
         await audit_service.record(
-            db, actor_id=farmer.id, action="crop.delete", entity_type="crop", entity_id=crop_id
+            db,
+            actor_id=farmer.id,
+            action="crop.delete",
+            entity_type="crop",
+            entity_id=crop_id,
+            new_value={"deletion_reason": reason} if reason else None,
+            details=reason,
         )
         await db.flush()
     return crop

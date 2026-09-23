@@ -285,6 +285,29 @@ class CropUpdateIn(_Strict):
     harvest_date: date | None = None
     status: CropStage | None = None
     notes: str | None = None
+    farmer_comment: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("farmer_comment")
+    @classmethod
+    def _validate_comment(cls, v: str | None) -> str | None:
+        if v is not None:
+            v = v.strip()
+            if not v:
+                raise ValueError("Farmer comment cannot be empty or whitespace only")
+        return v
+
+
+class CropDeleteIn(_Strict):
+    reason: str = Field(min_length=3, max_length=500, description="Reason for crop field deletion")
+
+    @field_validator("reason")
+    @classmethod
+    def _validate_reason(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 3:
+            raise ValueError("Reason for deletion must contain at least 3 meaningful characters")
+        return v
+
 
 
 class VisitOut(BaseModel):
