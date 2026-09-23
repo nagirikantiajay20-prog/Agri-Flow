@@ -194,7 +194,7 @@ async def dashboard(db: AsyncSession, *, farmer: User) -> dict:
     orders = await recent_orders(db, farmer=farmer)
 
     try:
-        weather = await asyncio.wait_for(weather_task, timeout=5)
+        weather = await asyncio.wait_for(weather_task, timeout=8)
     except Exception:
         weather = None
 

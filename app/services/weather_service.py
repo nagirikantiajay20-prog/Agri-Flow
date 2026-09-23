@@ -15,7 +15,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.redis import get_redis, is_available
+from app.core.redis import get_redis, is_available, mark_unavailable
 
 logger = get_logger(__name__)
 
@@ -78,7 +78,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
             if hit:
                 return json.loads(hit)
         except Exception:
-            pass
+            mark_unavailable()
 
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
