@@ -11,7 +11,7 @@ import re
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, field_validator
 
@@ -286,6 +286,24 @@ class CropUpdateIn(_Strict):
     status: CropStage | None = None
     notes: str | None = None
     farmer_comment: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_lower = v.strip().lower()
+            for stage in CropStage:
+                if stage.value.lower() == v_lower or stage.name.lower() == v_lower:
+                    return stage
+        return v
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _normalize_notes(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v = v.strip()
+            return v if v else None
+        return v
 
     @field_validator("farmer_comment")
     @classmethod

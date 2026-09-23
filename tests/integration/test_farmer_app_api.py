@@ -147,19 +147,25 @@ async def test_crop_lifecycle_and_ownership(client, fake_redis, db_session):
     assert [v["visit_month"] for v in body["visits"]] == [1, 4], "Cotton is inspected at months 1 and 4"
     assert body["crop"]["notes"] == "Near canal"
 
-    updated = await client.patch(f"{API}/crops/{crop_id}", headers=headers, json={"status": "Growing", "acres": 7})
+    updated = await client.patch(
+        f"{API}/crops/{crop_id}",
+        headers=headers,
+        json={"status": "Growing", "acres": 7, "farmer_comment": "the crop has been sowed well"},
+    )
     assert updated.status_code == 200
     assert updated.json()["data"]["status"] == "Growing"
 
     stolen = await client.patch(f"{API}/crops/{crop_id}", headers=auth_headers(other), json={"acres": 1})
     assert stolen.status_code == 404, "Another farmer's crop must be indistinguishable from a missing one"
-    assert (await client.delete(f"{API}/crops/{crop_id}", headers=auth_headers(other))).status_code == 404
+    assert (
+        await client.request("DELETE", f"{API}/crops/{crop_id}", headers=auth_headers(other), json={"reason": "Testing stolen"})
+    ).status_code == 404
 
     assert len((await client.get(f"{API}/crops/{crop_id}/inspections", headers=headers)).json()["data"]) == 2
 
     # Soft delete: the crop disappears from the active list, but its visit
     # history, and the crop row itself, are never physically destroyed.
-    deleted = await client.delete(f"{API}/crops/{crop_id}", headers=headers)
+    deleted = await client.request("DELETE", f"{API}/crops/{crop_id}", headers=headers, json={"reason": "Harvest complete"})
     assert deleted.status_code == 200
 
     active = (await client.get(f"{API}/crops", headers=headers)).json()["data"]
