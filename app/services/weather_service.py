@@ -67,6 +67,7 @@ def _parse(payload: dict) -> dict:
 
 async def current_weather(latitude: float | None = None, longitude: float | None = None) -> dict | None:
     if not settings.WEATHER_ENABLED:
+        logger.info("weather_disabled_by_config")
         return None
     lat = round(latitude if latitude is not None else settings.WEATHER_DEFAULT_LATITUDE, 2)
     lon = round(longitude if longitude is not None else settings.WEATHER_DEFAULT_LONGITUDE, 2)
@@ -77,11 +78,12 @@ async def current_weather(latitude: float | None = None, longitude: float | None
             hit = await get_redis().get(cache_key)
             if hit:
                 return json.loads(hit)
-        except Exception:
+        except Exception as exc:
+            logger.warning("weather_redis_get_failed", error=str(exc))
             mark_unavailable()
 
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 OPEN_METEO_URL,
                 params={
@@ -102,6 +104,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
     if is_available():
         try:
             await get_redis().set(cache_key, json.dumps(weather), ex=settings.WEATHER_CACHE_SECONDS)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("weather_redis_set_failed", error=str(exc))
+            mark_unavailable()
     return weather

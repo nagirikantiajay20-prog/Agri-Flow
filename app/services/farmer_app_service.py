@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import get_logger
 from app.models.crop import Crop, FarmVisit
 from app.models.enums import (
     BookingStatus,
@@ -30,6 +31,8 @@ from app.models.seed import Seed, SeedPurchase
 from app.models.user import FarmerProfile, User
 from app.models.warehouse import BookingSlot, Warehouse
 from app.services import market_rate_service, weather_service
+
+logger = get_logger(__name__)
 
 TYPICAL_CROP_DAYS: dict[str, int] = {
     "rice": 120, "paddy": 120, "wheat": 120, "maize": 100, "cotton": 160,
@@ -194,8 +197,13 @@ async def dashboard(db: AsyncSession, *, farmer: User) -> dict:
     orders = await recent_orders(db, farmer=farmer)
 
     try:
-        weather = await asyncio.wait_for(weather_task, timeout=8)
-    except Exception:
+        weather = await asyncio.wait_for(weather_task, timeout=8.0)
+    except Exception as exc:
+        logger.warning(
+            "dashboard_weather_task_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         weather = None
 
     return {
