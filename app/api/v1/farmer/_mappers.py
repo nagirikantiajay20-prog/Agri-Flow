@@ -153,10 +153,9 @@ def warehouse_out(w: Warehouse) -> s.WarehouseOut:
     )
 
 
-def slot_time(slot: WarehouseSlot | None) -> str:
+def slot_time(slot: WarehouseSlot | None) -> str | None:
     if slot is None:
-        from app.services.booking_service import DEFAULT_OPERATING_WINDOW
-        return DEFAULT_OPERATING_WINDOW
+        return None
     return f"{slot.start_time:%I:%M %p} - {slot.end_time:%I:%M %p}"
 
 
