@@ -85,7 +85,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
             mark_unavailable()
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, headers={"User-Agent": "AgriFlow-Backend/1.0"}) as client:
             resp = await client.get(
                 OPEN_METEO_URL,
                 params={
