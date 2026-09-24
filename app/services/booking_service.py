@@ -16,6 +16,7 @@ production bug fixed in
 20260714060000_fix_booking_notification_quintals.sql (Master Plan §1.4).
 """
 import uuid
+from datetime import date, time
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -27,6 +28,7 @@ from app.core.exceptions import (
     ForbiddenError,
     InvalidStateTransitionError,
     NotFoundError,
+    ValidationError,
 )
 from app.models.enums import BookingStatus, NotificationType, UserRole
 from app.models.user import User
@@ -53,6 +55,12 @@ _VALID_TRANSITIONS: dict[BookingStatus, set[BookingStatus]] = {
 }
 
 CAPACITY_RELEASING_STATUSES = {BookingStatus.CANCELLED}
+BOOKABLE_SLOT_STATUSES: set[str] = {"active", "open"}
+
+
+DEFAULT_OPERATING_START: time = time(9, 0)
+DEFAULT_OPERATING_END: time = time(18, 0)
+DEFAULT_OPERATING_WINDOW: str = "09:00 AM - 06:00 PM"
 
 
 async def list_warehouses(db: AsyncSession) -> list[Warehouse]:
@@ -63,7 +71,7 @@ async def list_warehouses(db: AsyncSession) -> list[Warehouse]:
 async def list_slots(db: AsyncSession, *, warehouse_id: uuid.UUID) -> list[WarehouseSlot]:
     result = await db.execute(
         select(WarehouseSlot)
-        .where(WarehouseSlot.warehouse_id == warehouse_id, WarehouseSlot.status == "active")
+        .where(WarehouseSlot.warehouse_id == warehouse_id, WarehouseSlot.status.in_(BOOKABLE_SLOT_STATUSES))
         .order_by(WarehouseSlot.slot_date, WarehouseSlot.start_time)
     )
     return list(result.scalars().all())
@@ -82,6 +90,18 @@ async def create_booking(
     grain_sale_id: uuid.UUID | None,
     notes: str | None,
 ) -> BookingSlot:
+    if isinstance(booking_date, str):
+        booking_date = date.fromisoformat(booking_date)
+    today = date.today()
+    if booking_date < today:
+        raise ValidationError(
+            f"booking_date cannot be in the past (got {booking_date}, today is {today})",
+            details={"booking_date": str(booking_date), "today": str(today)},
+        )
+
+    if quantity_kg <= Decimal("0"):
+        raise ValidationError("quantity_kg must be greater than zero")
+
     # 1. Lock the warehouse row — critical section for concurrency.
     wh_res = await db.execute(
         select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
@@ -90,44 +110,53 @@ async def create_booking(
     if warehouse is None:
         raise NotFoundError("Warehouse not found")
 
-    wh_avail = Decimal(warehouse.total_capacity_kg) - Decimal(warehouse.current_load_kg or 0)
-    if quantity_kg > wh_avail:
+    if not warehouse.is_active:
+        raise ConflictError(
+            f"Warehouse '{warehouse.name}' is currently inactive and cannot accept bookings",
+            details={"warehouse_id": str(warehouse_id), "is_active": False},
+        )
+
+    wh_avail = max(Decimal("0"), Decimal(warehouse.total_capacity_kg) - Decimal(warehouse.current_load_kg or 0))
+    if quantity_kg > wh_avail or wh_avail <= Decimal("0"):
         raise CapacityExceededError(
             f"Warehouse overall capacity exceeded. Only {wh_avail} kg available in warehouse.",
             details={"total_capacity_kg": str(warehouse.total_capacity_kg), "current_load_kg": str(warehouse.current_load_kg), "requested_kg": str(quantity_kg)},
         )
 
-    from datetime import date as _date
-
     # 2. Lock and resolve the time slot row (transaction-safe)
+    slot: WarehouseSlot | None = None
     if warehouse_slot_id is None:
+        # Check if explicit slots exist for this warehouse + date (explicit slot has priority)
         slot_res = await db.execute(
             select(WarehouseSlot)
             .where(
                 WarehouseSlot.warehouse_id == warehouse_id,
                 WarehouseSlot.slot_date == booking_date,
-                WarehouseSlot.status == "active",
+                WarehouseSlot.status.in_(BOOKABLE_SLOT_STATUSES),
             )
             .order_by(WarehouseSlot.start_time)
             .with_for_update()
         )
         slots = list(slot_res.scalars().all())
-        if not slots:
-            raise NotFoundError(f"No active slots available for this warehouse on {booking_date}")
-
-        valid_slot = None
-        for s in slots:
-            rem = Decimal(s.capacity_kg) - Decimal(s.booked_kg)
-            if rem >= quantity_kg and s.current_booking_count < s.max_bookings:
-                valid_slot = s
-                break
-        if valid_slot is None:
-            raise CapacityExceededError(
-                f"No slot on {booking_date} has sufficient remaining capacity for {quantity_kg} kg.",
-                details={"booking_date": str(booking_date), "requested_kg": str(quantity_kg)},
-            )
-        slot = valid_slot
-        warehouse_slot_id = slot.id
+        if slots:
+            valid_slot = None
+            for s in slots:
+                rem = Decimal(s.capacity_kg) - Decimal(s.booked_kg)
+                if rem >= quantity_kg and s.current_booking_count < s.max_bookings:
+                    valid_slot = s
+                    break
+            if valid_slot is None:
+                raise CapacityExceededError(
+                    f"No slot on {booking_date} has sufficient remaining capacity for {quantity_kg} kg.",
+                    details={"booking_date": str(booking_date), "requested_kg": str(quantity_kg)},
+                )
+            slot = valid_slot
+            warehouse_slot_id = slot.id
+        else:
+            # Automatic booking resolution: No manager-created slot exists for this date.
+            # Active warehouse with physical capacity accepts the booking during standard operating hours.
+            slot = None
+            warehouse_slot_id = None
     else:
         result = await db.execute(
             select(WarehouseSlot).where(WarehouseSlot.id == warehouse_slot_id).with_for_update()
@@ -135,44 +164,44 @@ async def create_booking(
         slot = result.scalar_one_or_none()
         if slot is None or slot.warehouse_id != warehouse_id:
             raise NotFoundError("Warehouse slot not found")
-        if slot.status != "active":
+        if slot.status not in BOOKABLE_SLOT_STATUSES:
             raise ConflictError("This slot is no longer accepting bookings")
 
-        if slot.slot_date < _date.today():
+        if slot.slot_date < today:
             raise ConflictError("This slot is in the past and can no longer be booked")
         if booking_date != slot.slot_date:
-            from app.core.exceptions import ValidationError
-
             raise ValidationError(
                 "booking_date must match the selected slot's date",
                 details={"slot_date": str(slot.slot_date), "booking_date": str(booking_date)},
             )
 
-    # 3. Check the slot's booking-count limit, then its weight capacity.
-    if slot.current_booking_count >= slot.max_bookings:
-        raise CapacityExceededError(
-            "This time slot has reached its booking limit — please choose another slot",
-            details={"max_bookings": slot.max_bookings},
-        )
-    remaining = Decimal(slot.capacity_kg) - Decimal(slot.booked_kg)
-    if quantity_kg > remaining:
-        raise CapacityExceededError(
-            f"Only {remaining} kg remaining in this slot",
-            details={"remaining_kg": str(remaining), "requested_kg": str(quantity_kg)},
-        )
+        # Check explicit slot booking limit and capacity
+        if slot.current_booking_count >= slot.max_bookings:
+            raise CapacityExceededError(
+                "This time slot has reached its booking limit — please choose another slot",
+                details={"max_bookings": slot.max_bookings},
+            )
+        remaining = Decimal(slot.capacity_kg) - Decimal(slot.booked_kg)
+        if quantity_kg > remaining:
+            raise CapacityExceededError(
+                f"Only {remaining} kg remaining in this slot",
+                details={"remaining_kg": str(remaining), "requested_kg": str(quantity_kg)},
+            )
 
-    # 4. Prevent duplicate booking: same farmer, same slot, still pending/confirmed.
+    # 3. Prevent duplicate active booking: same farmer, same warehouse, same date
     dup = await db.execute(
         select(BookingSlot).where(
             BookingSlot.farmer_id == farmer.id,
-            BookingSlot.warehouse_slot_id == warehouse_slot_id,
+            BookingSlot.warehouse_id == warehouse_id,
+            BookingSlot.booking_date == booking_date,
             BookingSlot.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
         )
     )
     if dup.scalar_one_or_none() is not None:
-        raise ConflictError("You already have an active booking for this slot")
+        raise ConflictError("You already have an active booking for this warehouse on this date")
 
     # 4. Create booking.
+    resolved_notes = notes or (f"Automatic drop-off ({DEFAULT_OPERATING_WINDOW})" if warehouse_slot_id is None else None)
     booking = BookingSlot(
         farmer_id=farmer.id,
         grain_sale_id=grain_sale_id,
@@ -182,13 +211,15 @@ async def create_booking(
         delivery_address=delivery_address,
         grain_type=grain_type,
         quantity_kg=quantity_kg,
-        notes=notes,
+        status=BookingStatus.PENDING,
+        notes=resolved_notes,
     )
     db.add(booking)
 
-    # 5. Increment capacity atomically on both slot and warehouse.
-    slot.booked_kg += quantity_kg
-    slot.current_booking_count += 1
+    # 5. Increment capacity atomically on slot (if explicit) and warehouse.
+    if slot is not None:
+        slot.booked_kg += quantity_kg
+        slot.current_booking_count += 1
     warehouse.current_load_kg = Decimal(warehouse.current_load_kg or 0) + quantity_kg
 
     await db.flush()
@@ -346,7 +377,7 @@ async def list_slots_filtered(
         # the caller can actually act on.
         query = query.where(WarehouseSlot.slot_date >= _date.today())
     if not include_inactive:
-        query = query.where(WarehouseSlot.status == "active")
+        query = query.where(WarehouseSlot.status.in_(BOOKABLE_SLOT_STATUSES))
     query = query.order_by(WarehouseSlot.slot_date.desc(), WarehouseSlot.start_time).limit(
         SLOT_LIST_MAX_ROWS
     )
