@@ -88,6 +88,7 @@ class TransactionStatus(str, enum.Enum):
 class TransactionReferenceType(str, enum.Enum):
     SEED_PURCHASE = "seed_purchase"
     GRAIN_SALE = "grain_sale"
+    BILLING = "billing"
     OTHER = "other"
 
 
