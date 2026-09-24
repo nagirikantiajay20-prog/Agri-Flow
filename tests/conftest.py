@@ -30,24 +30,22 @@ from tests.conftest_redis import fake_redis  # noqa: F401
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _setup_schema():
-    """Create all tables once per test session, drop after. Refuses to run
-    against anything but a local database, because the teardown drops
-    every table and .env may point at the real Supabase project."""
+    """Safety guard: Tests may ONLY run against local disposable databases.
+    Remote databases are strictly prohibited under all circumstances.
+    Base.metadata.drop_all teardown is permanently disabled."""
     from sqlalchemy.engine import make_url
 
     host = make_url(str(engine.url)).host or ""
-    if host not in ("localhost", "127.0.0.1", "::1") and os.environ.get("ALLOW_REMOTE_TEST_DB") != "1":
+    if host not in ("localhost", "127.0.0.1", "::1"):
         pytest.exit(
-            f"Refusing to run the test suite against non-local database host '{host}': "
-            "the suite drops every table on teardown. Export DATABASE_URL pointing at a "
-            "disposable local database, or set ALLOW_REMOTE_TEST_DB=1 for a disposable remote one.",
+            f"CRITICAL SAFETY VIOLATION: Refusing to run tests against non-local database host '{host}'. "
+            "Tests may only run against a local disposable database (localhost/127.0.0.1).",
             returncode=2,
         )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    # Permanently disabled drop_all teardown for database safety
 
 
 @pytest.fixture(autouse=True)
