@@ -90,12 +90,13 @@ class Settings(BaseSettings):
         return v
 
     # ── Rate limiting ────────────────────────────────────────────────
+    RATE_LIMIT_ENABLED: bool = False
     RATE_LIMIT_GLOBAL_PER_15MIN: int = 900
-    RATE_LIMIT_AUTH_PER_15MIN: int = 20
-    RATE_LIMIT_OTP_PER_MIN: int = 3
-    RATE_LIMIT_WRITE_PER_5MIN: int = 30
-    RATE_LIMIT_UPLOAD_PER_15MIN: int = 10
-    RATE_LIMIT_ADMIN_PER_5MIN: int = 100
+    RATE_LIMIT_AUTH_PER_15MIN: int = 2000
+    RATE_LIMIT_OTP_PER_MIN: int = 300
+    RATE_LIMIT_WRITE_PER_5MIN: int = 3000
+    RATE_LIMIT_UPLOAD_PER_15MIN: int = 1000
+    RATE_LIMIT_ADMIN_PER_5MIN: int = 10000
 
     # ── OTP ──────────────────────────────────────────────────────────
     OTP_ECHO_IN_RESPONSE: bool = False
@@ -119,7 +120,7 @@ class Settings(BaseSettings):
     WEATHER_CACHE_SECONDS: int = 900
 
     # ── Farmer mobile app ────────────────────────────────────────────
-    RATE_LIMIT_LOGIN_PER_MIN: int = 5
+    RATE_LIMIT_LOGIN_PER_MIN: int = 1000
     UPLOAD_MAX_AVATAR_MB: int = 2
 
     # ── Metrics (gap-fix #9) ─────────────────────────────────────────

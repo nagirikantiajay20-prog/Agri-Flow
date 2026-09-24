@@ -88,7 +88,7 @@ def _buckets(request: Request, principal: str) -> list[tuple[str, int, int]]:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith(EXEMPT_PATHS):
+        if not getattr(settings, "RATE_LIMIT_ENABLED", False) or request.url.path.startswith(EXEMPT_PATHS):
             return await call_next(request)
 
         if not is_available():
