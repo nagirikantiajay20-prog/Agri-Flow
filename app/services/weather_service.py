@@ -72,6 +72,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
     lat = round(latitude if latitude is not None else settings.WEATHER_DEFAULT_LATITUDE, 2)
     lon = round(longitude if longitude is not None else settings.WEATHER_DEFAULT_LONGITUDE, 2)
     cache_key = f"cache:weather:{lat}:{lon}"
+    stale_key = f"cache:weather:stale:{lat}:{lon}"
 
     if is_available():
         try:
@@ -99,11 +100,22 @@ async def current_weather(latitude: float | None = None, longitude: float | None
             weather = _parse(resp.json())
     except Exception as exc:
         logger.warning("weather_fetch_failed", error=str(exc))
+        if is_available():
+            try:
+                stale_hit = await get_redis().get(stale_key)
+                if stale_hit:
+                    stale_data = json.loads(stale_hit)
+                    stale_data["is_stale"] = True
+                    return stale_data
+            except Exception as s_exc:
+                logger.warning("weather_redis_stale_get_failed", error=str(s_exc))
         return None
 
     if is_available():
         try:
-            await get_redis().set(cache_key, json.dumps(weather), ex=settings.WEATHER_CACHE_SECONDS)
+            r = get_redis()
+            await r.set(cache_key, json.dumps(weather), ex=settings.WEATHER_CACHE_SECONDS)
+            await r.set(stale_key, json.dumps(weather), ex=86400)  # 24 hour stale fallback
         except Exception as exc:
             logger.warning("weather_redis_set_failed", error=str(exc))
             mark_unavailable()
