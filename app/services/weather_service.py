@@ -9,6 +9,7 @@ weather card rather than failing.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -76,7 +77,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
 
     if is_available():
         try:
-            hit = await get_redis().get(cache_key)
+            hit = await asyncio.wait_for(get_redis().get(cache_key), timeout=1.0)
             if hit:
                 return json.loads(hit)
         except Exception as exc:
@@ -102,7 +103,7 @@ async def current_weather(latitude: float | None = None, longitude: float | None
         logger.warning("weather_fetch_failed", error=str(exc))
         if is_available():
             try:
-                stale_hit = await get_redis().get(stale_key)
+                stale_hit = await asyncio.wait_for(get_redis().get(stale_key), timeout=1.0)
                 if stale_hit:
                     stale_data = json.loads(stale_hit)
                     stale_data["is_stale"] = True
@@ -114,8 +115,8 @@ async def current_weather(latitude: float | None = None, longitude: float | None
     if is_available():
         try:
             r = get_redis()
-            await r.set(cache_key, json.dumps(weather), ex=settings.WEATHER_CACHE_SECONDS)
-            await r.set(stale_key, json.dumps(weather), ex=86400)  # 24 hour stale fallback
+            await asyncio.wait_for(r.set(cache_key, json.dumps(weather), ex=settings.WEATHER_CACHE_SECONDS), timeout=1.0)
+            await asyncio.wait_for(r.set(stale_key, json.dumps(weather), ex=86400), timeout=1.0)  # 24 hour stale fallback
         except Exception as exc:
             logger.warning("weather_redis_set_failed", error=str(exc))
             mark_unavailable()
