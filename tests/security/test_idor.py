@@ -12,13 +12,15 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_farmer_cannot_read_another_farmers_notification(client, db_session, active_farmer):
+    import uuid
+
     from app.core.security import hash_password
     from app.models.enums import UserRole, UserStatus
     from app.models.user import User
     from app.services import notification_service
 
     other = User(
-        name="Other Farmer", phone="9111122233", password_hash=hash_password("x"),
+        name="Other Farmer", phone=f"9{uuid.uuid4().int % 10**9:09d}", password_hash=hash_password("x"),
         role=UserRole.FARMER, status=UserStatus.ACTIVE,
     )
     db_session.add(other)
