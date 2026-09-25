@@ -49,6 +49,7 @@ select = ["E", "F", "I"]
 ignore = ["E501"]  # long descriptive comments/docstrings are intentional here; not wrapping them for a hard limit
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
