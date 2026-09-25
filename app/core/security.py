@@ -17,6 +17,9 @@ migrate to the stronger scheme transparently on their next successful
 login rather than needing a bulk offline rehash (which is impossible
 anyway — bcrypt hashes can't be converted without the plaintext password).
 """
+import asyncio
+import concurrent.futures
+import os
 import re
 import secrets
 import uuid
@@ -34,6 +37,28 @@ _hasher = PasswordHasher()
 _BCRYPT_PATTERN = re.compile(r"^\$2[aby]\$")
 
 TokenType = Literal["access", "refresh"]
+
+# ── Bounded worker pool for CPU-bound Argon2id operations ────────────────
+# Bounds concurrency to prevent OS thread thrashing and memory exhaustion.
+_MAX_PASSWORD_WORKERS = min(4, max(2, (os.cpu_count() or 2)))
+_password_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_MAX_PASSWORD_WORKERS,
+    thread_name_prefix="argon2_worker",
+)
+_password_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_password_semaphore() -> asyncio.Semaphore:
+    global _password_semaphore
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.Semaphore(_MAX_PASSWORD_WORKERS * 2)
+
+    if _password_semaphore is None or getattr(_password_semaphore, "_loop", None) not in (None, loop):
+        _password_semaphore = asyncio.Semaphore(_MAX_PASSWORD_WORKERS * 2)
+    return _password_semaphore
+
 
 
 # ── Password hashing ────────────────────────────────────────────────────
@@ -59,6 +84,36 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
         return False
     except Exception:
         return False
+
+
+async def verify_password_async(plain_password: str, password_hash: str, *, timeout: float = 10.0) -> bool:
+    """Non-blocking password verification executed on a dedicated, bounded ThreadPoolExecutor.
+
+    Prevents CPU-heavy Argon2id computations from blocking the FastAPI event loop,
+    ensuring that other concurrent requests (dashboard, seed catalog, health checks)
+    maintain low latency and high responsiveness.
+    """
+    sem = _get_password_semaphore()
+    loop = asyncio.get_running_loop()
+    async with sem:
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(_password_executor, verify_password, plain_password, password_hash),
+                timeout=timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            return False
+
+
+async def hash_password_async(plain_password: str, *, timeout: float = 10.0) -> str:
+    """Non-blocking password hashing executed on a dedicated, bounded ThreadPoolExecutor."""
+    sem = _get_password_semaphore()
+    loop = asyncio.get_running_loop()
+    async with sem:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_password_executor, hash_password, plain_password),
+            timeout=timeout,
+        )
 
 
 def needs_rehash(password_hash: str) -> bool:
@@ -105,7 +160,9 @@ def generate_opaque_refresh_token() -> str:
 
 __all__ = [
     "hash_password",
+    "hash_password_async",
     "verify_password",
+    "verify_password_async",
     "is_bcrypt_hash",
     "needs_rehash",
     "create_access_token",
@@ -113,3 +170,4 @@ __all__ = [
     "generate_opaque_refresh_token",
     "JWTError",
 ]
+

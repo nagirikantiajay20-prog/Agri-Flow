@@ -21,8 +21,10 @@ from app.core.security import (
     create_access_token,
     generate_opaque_refresh_token,
     hash_password,
+    hash_password_async,
     needs_rehash,
     verify_password,
+    verify_password_async,
 )
 from app.models.enums import UserRole, UserStatus
 from app.models.user import FarmerProfile, RefreshToken, User
@@ -49,7 +51,7 @@ async def register_farmer(db: AsyncSession, *, name: str, phone: str, email: str
         name=name,
         phone=phone,
         email=email,
-        password_hash=hash_password(password),
+        password_hash=await hash_password_async(password),
         role=UserRole.FARMER,
         status=UserStatus.PENDING,  # awaits manager/admin approval — Module 4
         first_login=True,
@@ -66,7 +68,7 @@ async def register_farmer(db: AsyncSession, *, name: str, phone: str, email: str
 async def authenticate(db: AsyncSession, *, phone: str, password: str) -> User:
     result = await db.execute(select(User).where(User.phone == phone))
     user = result.scalar_one_or_none()
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or not await verify_password_async(password, user.password_hash):
         raise UnauthorizedError("Invalid phone number or password")
     if user.status == UserStatus.SUSPENDED:
         raise ForbiddenError("Account is suspended")
@@ -80,7 +82,7 @@ async def authenticate(db: AsyncSession, *, phone: str, password: str) -> User:
     # Argon2id — this is the only point a bcrypt hash can ever be
     # converted, since it requires the plaintext password.
     if needs_rehash(user.password_hash):
-        user.password_hash = hash_password(password)
+        user.password_hash = await hash_password_async(password)
         await db.flush()
 
     return user
@@ -146,12 +148,12 @@ async def revoke_all_sessions(db: AsyncSession, *, user_id: uuid.UUID) -> None:
 async def change_password(
     db: AsyncSession, *, user: User, current_password: str, new_password: str
 ) -> None:
-    if not verify_password(current_password, user.password_hash):
+    if not await verify_password_async(current_password, user.password_hash):
         raise UnauthorizedError("Current password is incorrect")
     if current_password == new_password:
         raise ValidationError("The new password must differ from the current one")
 
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     user.first_login = False
     await revoke_all_sessions(db, user_id=user.id)
     await audit_service.record(
@@ -179,7 +181,7 @@ async def complete_password_reset(db: AsyncSession, *, phone: str, code: str, ne
     if user is None:
         raise ValidationError("The OTP is invalid or has expired")
 
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     await revoke_all_sessions(db, user_id=user.id)
     await audit_service.record(
         db, actor_id=user.id, action="user.password_reset", entity_type="user", entity_id=user.id
