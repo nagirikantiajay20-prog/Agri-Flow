@@ -110,3 +110,125 @@ async def test_update_status_on_missing_purchase_raises_not_found(db_session, su
         await purchase_service.update_purchase_status(
             db_session, admin=super_admin, purchase_id=uuid.uuid4(), new_status=PaymentStatus.PAID
         )
+
+
+async def test_grade_pricing_and_fallback(db_session, active_farmer, super_admin):
+    from app.core.exceptions import ValidationError
+
+    # Seed with all grades configured
+    seed = await purchase_service.create_seed(
+        db_session,
+        admin=super_admin,
+        name="Multi-Grade Wheat",
+        variety="W-1",
+        price_per_kg=Decimal("100.00"),
+        price_grade_a=Decimal("120.00"),
+        price_grade_b=Decimal("110.00"),
+        price_grade_c=Decimal("90.00"),
+        max_order_quantity_kg=Decimal("50.00"),
+        stock_kg=Decimal("1000"),
+    )
+    await db_session.commit()
+
+    # 1. Purchase Grade A
+    p_a = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("2"),
+        warehouse_id=None, payment_method=None, upi_id=None, grade="A",
+    )
+    assert p_a.price_per_kg == Decimal("120.00")
+    assert p_a.total_amount == Decimal("240.00")
+    assert p_a.grade == "A"
+
+    # 2. Purchase Grade B
+    p_b = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("2"),
+        warehouse_id=None, payment_method=None, upi_id=None, grade="B",
+    )
+    assert p_b.price_per_kg == Decimal("110.00")
+    assert p_b.total_amount == Decimal("220.00")
+    assert p_b.grade == "B"
+
+    # 3. Purchase Grade C
+    p_c = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("2"),
+        warehouse_id=None, payment_method=None, upi_id=None, grade="C",
+    )
+    assert p_c.price_per_kg == Decimal("90.00")
+    assert p_c.total_amount == Decimal("180.00")
+    assert p_c.grade == "C"
+
+    # 4. Purchase without grade -> fallback to base price_per_kg
+    p_none = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("2"),
+        warehouse_id=None, payment_method=None, upi_id=None, grade=None,
+    )
+    assert p_none.price_per_kg == Decimal("100.00")
+    assert p_none.total_amount == Decimal("200.00")
+
+    # 5. Invalid grade -> rejected with ValidationError
+    with pytest.raises(ValidationError):
+        await purchase_service.purchase_seeds(
+            db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("2"),
+            warehouse_id=None, payment_method=None, upi_id=None, grade="X",
+        )
+
+
+async def test_grade_pricing_fallback_when_grade_price_is_null(db_session, active_farmer, super_admin):
+    # Seed with base price only (all grade prices NULL)
+    seed = await purchase_service.create_seed(
+        db_session,
+        admin=super_admin,
+        name="Standard Mustard",
+        variety="M-1",
+        price_per_kg=Decimal("75.00"),
+        price_grade_a=None,
+        price_grade_b=None,
+        price_grade_c=None,
+        stock_kg=Decimal("500"),
+    )
+    await db_session.commit()
+
+    # Grade A requested on seed without price_grade_a -> falls back to base 75.00
+    p = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("10"),
+        warehouse_id=None, payment_method=None, upi_id=None, grade="A",
+    )
+    assert p.price_per_kg == Decimal("75.00")
+    assert p.total_amount == Decimal("750.00")
+    assert p.grade == "A"
+
+
+async def test_max_order_quantity_limit(db_session, active_farmer, super_admin):
+    from app.core.exceptions import ValidationError
+
+    seed = await purchase_service.create_seed(
+        db_session,
+        admin=super_admin,
+        name="Capped Seed",
+        variety="C-1",
+        price_per_kg=Decimal("50.00"),
+        max_order_quantity_kg=Decimal("30.00"),
+        stock_kg=Decimal("500"),
+    )
+    await db_session.commit()
+
+    # Below limit -> success
+    p_below = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("20"),
+        warehouse_id=None, payment_method=None, upi_id=None,
+    )
+    assert p_below.quantity_kg == Decimal("20")
+
+    # Equal to limit -> success
+    p_equal = await purchase_service.purchase_seeds(
+        db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("30"),
+        warehouse_id=None, payment_method=None, upi_id=None,
+    )
+    assert p_equal.quantity_kg == Decimal("30")
+
+    # Above limit -> raises ValidationError
+    with pytest.raises(ValidationError):
+        await purchase_service.purchase_seeds(
+            db_session, farmer=active_farmer, seed_id=seed.id, quantity_kg=Decimal("30.01"),
+            warehouse_id=None, payment_method=None, upi_id=None,
+        )

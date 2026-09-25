@@ -131,6 +131,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {"name": "New Farmer", "phone": "9998887777", "password": "testpass123"},
     ),
     ("PATCH", f"/api/v1/farmers/{_ID}/approval", {MANAGER, SUPER_ADMIN}, {"status": "active"}),
+    ("PATCH", f"/api/v1/farmers/{_ID}", {MANAGER, SUPER_ADMIN}, {"name": "Updated Farmer"}),
     ("GET", "/api/v1/crops/active", {FARMER, MANAGER, SUPER_ADMIN}, None),
     (
         "POST",
@@ -190,6 +191,9 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {"good_quantity_kg": "9", "bad_quantity_kg": "1"},
     ),
     ("PATCH", f"/api/v1/transactions/{_ID}/pay", {MANAGER, SUPER_ADMIN}, {}),
+    ("GET", f"/api/v1/warehouses/{_ID}", {MANAGER, SUPER_ADMIN}, None),
+    ("PATCH", f"/api/v1/warehouses/{_ID}", {MANAGER, SUPER_ADMIN}, {"name": "W-Updated"}),
+    ("GET", f"/api/v1/warehouses/{_ID}/inventory", {MANAGER, SUPER_ADMIN}, None),
     (
         "POST",
         f"/api/v1/warehouses/{_ID}/inventory",
@@ -209,6 +213,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         },
     ),
     ("PATCH", f"/api/v1/warehouse-slots/{_ID}", {MANAGER, SUPER_ADMIN}, {"status": "cancelled"}),
+    ("DELETE", f"/api/v1/warehouse-slots/{_ID}", {MANAGER, SUPER_ADMIN}, None),
     ("GET", "/api/v1/admin/dashboard", {MANAGER, SUPER_ADMIN}, None),
     ("GET", "/api/v1/admin/reports/monthly?month=2026-01", {MANAGER, SUPER_ADMIN}, None),
     # ── Super-admin tier: managers must NOT reach these ───────────────
@@ -221,6 +226,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {"name": "M", "phone": "9998887766", "password": "testpass123", "role": "manager"},
     ),
     ("PATCH", f"/api/v1/managers/{_ID}/status", {SUPER_ADMIN}, {"status": "suspended"}),
+    ("PATCH", f"/api/v1/managers/{_ID}", {SUPER_ADMIN}, {"name": "M-Updated"}),
     (
         "POST",
         f"/api/v1/managers/{_ID}/reset-password",
@@ -238,6 +244,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ("PATCH", f"/api/v1/seeds/{_ID}", {SUPER_ADMIN}, {"name": "S2"}),
     ("DELETE", f"/api/v1/seeds/{_ID}", {SUPER_ADMIN}, None),
     ("POST", "/api/v1/warehouses", {SUPER_ADMIN}, {"name": "W", "address": "addr", "total_capacity_kg": "100"}),
+    ("DELETE", f"/api/v1/warehouses/{_ID}", {SUPER_ADMIN}, None),
     (
         "POST",
         "/api/v1/market-rates",
