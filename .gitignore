@@ -4,6 +4,14 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.jks
+key.properties
+*.bak
+*.tmp
+*.sql
 
 # Python
 __pycache__/
@@ -27,3 +35,24 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Scratch and forensic scripts
+dump_all_slots_table.py
+inspect_slots_readonly.py
+test_login_all_roles.py
+test_user_creds.py
+scripts/benchmark_farmer_endpoints.py
+scripts/clean_notification_prints.py
+scripts/export_handover_projects.py
+scripts/fix_escaped_quotes.py
+scripts/flutter_grep_results.txt
+scripts/forensics_readonly.py
+scripts/inspect_db_forensics.py
+scripts/inspect_transactions_forensics.py
+scripts/inspect_transactions_references.py
+scripts/security_audit_scanner.py
+scripts/staging_controlled_benchmark.py
+scripts/test_live_dashboard.py
+scripts/test_live_transactions_endpoint.py
+scripts/test_render_live_transactions.py
+*.db

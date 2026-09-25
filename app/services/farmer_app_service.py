@@ -196,15 +196,24 @@ async def dashboard(db: AsyncSession, *, farmer: User) -> dict:
     rates = await market_rate_service.current_rates_with_change(db)
     orders = await recent_orders(db, farmer=farmer)
 
-    try:
-        weather = await asyncio.wait_for(weather_task, timeout=8.0)
-    except Exception as exc:
-        logger.warning(
-            "dashboard_weather_task_failed",
-            error=str(exc),
-            error_type=type(exc).__name__,
-        )
-        weather = None
+    # Weather is decoupled from the critical path:
+    # If weather was cached or finished during DB queries, use it immediately.
+    # Otherwise, do not block the dashboard on external weather latency.
+    weather = None
+    if weather_task.done():
+        try:
+            weather = weather_task.result()
+        except Exception as exc:
+            logger.warning("dashboard_weather_task_failed", error=str(exc), error_type=type(exc).__name__)
+    else:
+        try:
+            weather = await asyncio.wait_for(asyncio.shield(weather_task), timeout=0.05)
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.info("dashboard_weather_deferred_background", note="External weather fetching in background; returning DB payload immediately")
+            weather = None
+        except Exception as exc:
+            logger.warning("dashboard_weather_task_failed", error=str(exc), error_type=type(exc).__name__)
+            weather = None
 
     return {
         "farmer_id": farmer.id,
