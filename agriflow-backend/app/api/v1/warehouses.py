@@ -16,6 +16,7 @@ from app.schemas.warehouse import (
     WarehouseSlotCreate,
     WarehouseSlotPublic,
     WarehouseSlotUpdate,
+    WarehouseUpdate,
 )
 from app.services import booking_service
 
@@ -40,9 +41,55 @@ async def create_warehouse(
 ):
     warehouse = await booking_service.create_warehouse(
         db, actor=actor, name=body.name, address=body.address,
-        total_capacity_kg=body.total_capacity_kg, manager_id=body.manager_id,
+        total_capacity_kg=body.total_capacity_kg, location=body.location,
+        contact_number=body.contact_number, manager_id=body.manager_id,
     )
     return SuccessResponse(data=WarehousePublic.model_validate(warehouse))
+
+
+@router.get("/{warehouse_id}", response_model=SuccessResponse[WarehousePublic])
+async def get_warehouse(
+    warehouse_id: uuid.UUID,
+    _: Annotated[object, Depends(require_permission("warehouse.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    warehouse = await booking_service.get_warehouse(db, warehouse_id=warehouse_id)
+    return SuccessResponse(data=WarehousePublic.model_validate(warehouse))
+
+
+@router.patch("/{warehouse_id}", response_model=SuccessResponse[WarehousePublic])
+async def update_warehouse(
+    warehouse_id: uuid.UUID,
+    body: WarehouseUpdate,
+    actor: Annotated[object, Depends(require_permission("warehouse.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    warehouse = await booking_service.update_warehouse(
+        db, actor=actor, warehouse_id=warehouse_id, **body.model_dump(exclude_unset=True)
+    )
+    return SuccessResponse(data=WarehousePublic.model_validate(warehouse))
+
+
+@router.delete("/{warehouse_id}", status_code=204)
+async def delete_warehouse(
+    warehouse_id: uuid.UUID,
+    actor: Annotated[object, Depends(require_permission("warehouse.create"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await booking_service.delete_warehouse(db, actor=actor, warehouse_id=warehouse_id)
+
+
+@router.get(
+    "/{warehouse_id}/inventory",
+    response_model=SuccessResponse[list[WarehouseInventoryPublic]],
+)
+async def get_inventory(
+    warehouse_id: uuid.UUID,
+    _: Annotated[object, Depends(require_permission("warehouse.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    inventory = await booking_service.get_warehouse_inventory(db, warehouse_id=warehouse_id)
+    return SuccessResponse(data=[WarehouseInventoryPublic.model_validate(i) for i in inventory])
 
 
 @router.post(
@@ -113,3 +160,12 @@ async def update_warehouse_slot(
         db, actor=actor, slot_id=slot_id, status=body.status, capacity_kg=body.capacity_kg
     )
     return SuccessResponse(data=WarehouseSlotPublic.model_validate(slot))
+
+
+@slots_router.delete("/{slot_id}", status_code=204)
+async def delete_warehouse_slot(
+    slot_id: uuid.UUID,
+    actor: Annotated[object, Depends(require_permission("warehouse.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await booking_service.delete_slot(db, actor=actor, slot_id=slot_id)

@@ -59,7 +59,7 @@ async def purchase(
         warehouse_id=warehouse_id,
         payment_method=body.payment_method,
         upi_id=None,
-        grade=body.grade.value,
+        grade=body.grade.value if hasattr(body.grade, "value") else (str(body.grade) if body.grade else None),
         pickup_date=body.pickup_date,
     )
     seed = await db.get(Seed, body.seed_id)

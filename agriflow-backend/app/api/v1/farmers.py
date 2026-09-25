@@ -12,6 +12,7 @@ from app.schemas.farmer import (
     BankChangeRequestCreate,
     BankChangeRequestPublic,
     BankChangeReviewRequest,
+    FarmerAdminUpdateRequest,
     FarmerAdminView,
     FarmerApprovalRequest,
     FarmerCreateRequest,
@@ -138,4 +139,17 @@ async def get_farmer(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     farmer, _profile = await farmer_service.get_farmer_detail(db, farmer_id=farmer_id)
+    return SuccessResponse(data=FarmerAdminView.model_validate(farmer))
+
+
+@router.patch("/{farmer_id}", response_model=SuccessResponse[FarmerAdminView])
+async def update_farmer(
+    farmer_id: uuid.UUID,
+    body: FarmerAdminUpdateRequest,
+    actor: Annotated[object, Depends(require_permission("farmer.create"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    farmer = await farmer_service.update_farmer_by_admin(
+        db, actor=actor, farmer_id=farmer_id, **body.model_dump(exclude_unset=True)
+    )
     return SuccessResponse(data=FarmerAdminView.model_validate(farmer))

@@ -14,6 +14,7 @@ from app.schemas.admin import (
     ManagerCreate,
     ManagerPublic,
     ManagerStatusUpdate,
+    ManagerUpdate,
     MarketRateCreate,
     MarketRatePublic,
     MonthlyReportResponse,
@@ -63,6 +64,19 @@ async def update_manager_status(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     manager = await admin_service.update_manager_status(db, actor=actor, manager_id=manager_id, new_status=body.status)
+    return SuccessResponse(data=ManagerPublic.model_validate(manager))
+
+
+@managers_router.patch("/{manager_id}", response_model=SuccessResponse[ManagerPublic])
+async def update_manager(
+    manager_id: uuid.UUID,
+    body: ManagerUpdate,
+    actor: Annotated[object, Depends(require_permission("manager.manage"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    manager = await admin_service.update_manager(
+        db, actor=actor, manager_id=manager_id, **body.model_dump(exclude_unset=True)
+    )
     return SuccessResponse(data=ManagerPublic.model_validate(manager))
 
 

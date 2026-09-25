@@ -31,6 +31,7 @@ async def create_purchase(
         warehouse_id=body.warehouse_id,
         payment_method=body.payment_method,
         upi_id=body.upi_id,
+        grade=body.grade,
     )
     return SuccessResponse(data=SeedPurchasePublic.model_validate(purchase))
 
