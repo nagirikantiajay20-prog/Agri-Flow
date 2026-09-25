@@ -1,0 +1,151 @@
+"""
+Shared pytest fixtures.
+
+Uses the same Postgres instance configured via DATABASE_URL — tests run
+against a real Postgres (not SQLite) because several behaviors under
+test (SELECT ... FOR UPDATE row locking, JSONB, native constraint
+enforcement) do not have faithful SQLite equivalents. Master Plan §12
+places concurrency tests as the highest-priority test category for
+exactly this reason.
+
+Note: this project pins to pytest-asyncio's config-based loop scoping
+(`asyncio_default_fixture_loop_scope = "session"` in pyproject.toml)
+rather than a custom `event_loop` fixture override, which pytest-asyncio
+1.x deprecated in favor of that setting.
+"""
+import uuid
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import AsyncSessionLocal, Base, engine
+from app.core.security import hash_password
+from app.models.enums import UserRole, UserStatus
+from app.models.user import FarmerProfile, User
+from tests.conftest_redis import fake_redis  # noqa: F401
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _setup_schema():
+    """Safety guard: Tests may ONLY run against local disposable databases.
+    Remote databases are strictly prohibited under all circumstances.
+    Base.metadata.drop_all teardown is permanently disabled."""
+    from sqlalchemy.engine import make_url
+
+    host = make_url(str(engine.url)).host or ""
+    if host not in ("localhost", "127.0.0.1", "::1"):
+        pytest.exit(
+            f"CRITICAL SAFETY VIOLATION: Refusing to run tests against non-local database host '{host}'. "
+            "Tests may only run against a local disposable database (localhost/127.0.0.1).",
+            returncode=2,
+        )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    # Permanently disabled drop_all teardown for database safety
+
+
+@pytest.fixture(autouse=True)
+def _no_external_calls(monkeypatch):
+    """No test may reach Open-Meteo or Firebase; tests that exercise those
+    integrations re-enable them explicitly against a stub."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WEATHER_ENABLED", False)
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", "")
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", "")
+    monkeypatch.setattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", "")
+
+
+@pytest_asyncio.fixture
+async def db_session() -> AsyncSession:
+    async with AsyncSessionLocal() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest_asyncio.fixture
+async def client():
+    import app.main as m
+
+    transport = ASGITransport(app=m.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def active_farmer(db_session: AsyncSession) -> User:
+    user = User(
+        name="Fixture Farmer",
+        phone=f"9{uuid.uuid4().int % 10**9:09d}",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.FARMER,
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(FarmerProfile(user_id=user.id))
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def super_admin(db_session: AsyncSession) -> User:
+    user = User(
+        name="Fixture Admin",
+        phone=f"8{uuid.uuid4().int % 10**9:09d}",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.SUPER_ADMIN,
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def manager(db_session: AsyncSession) -> User:
+    user = User(
+        name="Fixture Manager",
+        phone=f"7{uuid.uuid4().int % 10**9:09d}",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.MANAGER,
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def pending_farmer(db_session: AsyncSession) -> User:
+    user = User(
+        name="Pending Farmer",
+        phone=f"6{uuid.uuid4().int % 10**9:09d}",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.FARMER,
+        status=UserStatus.PENDING,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(FarmerProfile(user_id=user.id))
+    await db_session.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def suspended_farmer(db_session: AsyncSession) -> User:
+    user = User(
+        name="Suspended Farmer",
+        phone=f"5{uuid.uuid4().int % 10**9:09d}",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.FARMER,
+        status=UserStatus.SUSPENDED,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(FarmerProfile(user_id=user.id))
+    await db_session.commit()
+    return user
