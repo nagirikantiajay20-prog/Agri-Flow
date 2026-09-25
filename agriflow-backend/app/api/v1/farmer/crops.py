@@ -12,7 +12,6 @@ from app.core.database import get_db
 from app.core.dependencies import require_farmer
 from app.integrations import storage
 from app.models.crop import Crop
-from app.models.enums import CropStatus
 from app.models.user import User
 from app.schemas import farmer_app as s
 from app.schemas.common import MessageResponse, SuccessResponse
@@ -32,9 +31,9 @@ async def list_crops(
         False, description="Also return harvested / failed / sold crops (history view)"
     ),
 ):
-    query = select(Crop).where(Crop.farmer_id == farmer.id, Crop.deleted_at.is_(None))
+    query = select(Crop).where(Crop.farmer_id == farmer.id)
     if not include_closed:
-        query = query.where(Crop.status == CropStatus.GROWING)
+        query = query.where(Crop.deleted_at.is_(None))
     crops = (await db.execute(query.order_by(Crop.created_at.desc()).limit(MAX_OWN_CROPS))).scalars().all()
     return SuccessResponse(data=[crop_out(c) for c in crops])
 

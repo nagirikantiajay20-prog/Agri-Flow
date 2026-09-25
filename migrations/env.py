@@ -12,9 +12,9 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import app.models  # noqa: E402,F401  — registers every model's metadata
 from app.core.config import settings  # noqa: E402
 from app.core.database import Base  # noqa: E402
-import app.models  # noqa: E402,F401  — registers every model's metadata
 
 config = context.config
 if config.config_file_name is not None:

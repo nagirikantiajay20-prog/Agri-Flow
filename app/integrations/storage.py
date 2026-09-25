@@ -106,10 +106,12 @@ async def create_presigned_upload(*, bucket_key: str, file_name: str, content_ty
     object_name = f"{uuid.uuid4()}.{ext}"
     object_path = f"{bucket}/{object_name}"
 
-    if settings.STORAGE_PROVIDER == "s3" and _require_s3():
+    if settings.STORAGE_PROVIDER == "s3":
+        if not _require_s3():
+            raise ValidationError("S3 storage is not configured")
         upload_url = _s3_client().generate_presigned_url(
             "put_object",
-            Params={"Bucket": bucket, "Key": object_name, "ContentType": content_type},
+            Params={"Bucket": settings.S3_BUCKET, "Key": object_path, "ContentType": content_type},
             ExpiresIn=settings.S3_PRESIGN_EXPIRES_SECONDS,
         )
         return {
@@ -119,30 +121,24 @@ async def create_presigned_upload(*, bucket_key: str, file_name: str, content_ty
             "method": "PUT",
         }
 
-    # Supabase or fallback
-    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{settings.SUPABASE_URL}/storage/v1/object/upload/sign/{bucket}/{object_name}",
-                headers={"Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"},
-                timeout=10.0,
-            )
-            if resp.status_code == 200:
-                payload = resp.json()
-                return {
-                    "upload_url": f"{settings.SUPABASE_URL}/storage/v1{payload['url']}",
-                    "object_path": object_path,
-                    "expires_in": 120,
-                    "method": "PUT",
-                }
+    # Supabase provider
+    if not (settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY):
+        raise ValidationError("Supabase storage is not configured")
 
-    # Return direct upload object_path fallback
-    return {
-        "upload_url": f"{settings.SUPABASE_URL or 'https://oeniehlddcnxevjkjlzh.supabase.co'}/storage/v1/object/public/{object_path}",
-        "object_path": object_path,
-        "expires_in": 3600,
-        "method": "PUT",
-    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/storage/v1/object/upload/sign/{bucket}/{object_name}",
+            headers={"Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        return {
+            "upload_url": f"{settings.SUPABASE_URL}/storage/v1{payload['url']}",
+            "object_path": object_path,
+            "expires_in": 120,
+            "method": "PUT",
+        }
 
 
 async def upload_bytes(
@@ -173,11 +169,13 @@ async def upload_bytes(
     actual_object_name = f"{object_name}.{ext}" if object_name else f"{uuid.uuid4()}.{ext}"
     object_path = f"{bucket}/{actual_object_name}"
 
-    if settings.STORAGE_PROVIDER == "s3" and _require_s3():
+    if settings.STORAGE_PROVIDER == "s3":
+        if not _require_s3():
+            raise ValidationError("S3 storage is not configured")
         await asyncio.to_thread(
             _s3_client().put_object,
-            Bucket=bucket,
-            Key=actual_object_name,
+            Bucket=settings.S3_BUCKET,
+            Key=object_path,
             Body=data,
             ContentType=content_type,
         )

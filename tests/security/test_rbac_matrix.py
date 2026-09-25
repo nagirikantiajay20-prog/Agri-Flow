@@ -318,6 +318,7 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {FARMER},
         {"fcm_token": "fcm-token-for-rbac-matrix-test-0001", "device_type": "android"},
     ),
+    ("POST", "/api/v1/farmer/notifications/test-fcm", {FARMER}, None),
     ("GET", "/api/v1/farmer/transactions", {FARMER}, None),
     ("POST", "/api/v1/farmer/documents/upload", {FARMER}, None),
 ]

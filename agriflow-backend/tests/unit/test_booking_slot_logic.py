@@ -375,7 +375,10 @@ async def test_optional_explicit_manager_slot_booking(mock_audit, mock_notify_us
 # 10. Weather Service: fresh upstream response displayed and cached
 @patch("app.services.weather_service.is_available", return_value=False)
 @patch("httpx.AsyncClient.get")
-async def test_weather_fresh_response(mock_http_get, mock_redis_avail):
+async def test_weather_fresh_response(mock_http_get, mock_redis_avail, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WEATHER_ENABLED", True)
     mock_resp = MagicMock()
     mock_resp.raise_for_status.return_value = None
     mock_resp.json.return_value = {
@@ -400,7 +403,10 @@ async def test_weather_fresh_response(mock_http_get, mock_redis_avail):
 @patch("app.services.weather_service.is_available", return_value=True)
 @patch("app.services.weather_service.get_redis")
 @patch("httpx.AsyncClient.get")
-async def test_weather_temporary_failure_uses_stale_cache(mock_http_get, mock_get_redis, mock_redis_avail):
+async def test_weather_temporary_failure_uses_stale_cache(mock_http_get, mock_get_redis, mock_redis_avail, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WEATHER_ENABLED", True)
     mock_http_get.side_effect = Exception("Upstream timeout")
     
     mock_redis = AsyncMock()
