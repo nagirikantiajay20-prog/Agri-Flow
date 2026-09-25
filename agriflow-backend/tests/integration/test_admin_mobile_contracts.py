@@ -110,7 +110,7 @@ async def test_farmer_administration_by_manager_and_isolation(client, manager, s
     )
     assert patch_resp.status_code == 200, patch_resp.text
     farmer_view = patch_resp.json()["data"]
-    assert farmer_view["farmer_profile"]["acres_of_land"] == 12.5
+    assert Decimal(str(farmer_view["farmer_profile"]["acres_of_land"])) == Decimal("12.50")
 
     # Farmer attempts to call admin PATCH /farmers/{id} -> 403 Forbidden
     farmer_call = await client.patch(
