@@ -62,6 +62,20 @@ class User(Base, UUIDPKMixin, TimestampMixin):
         cascade="all, delete-orphan", passive_deletes=True,
     )
 
+    @property
+    def department(self) -> str | None:
+        try:
+            return self.staff_profile.department if self.staff_profile else None
+        except Exception:
+            return None
+
+    @property
+    def assigned_region(self) -> str | None:
+        try:
+            return self.staff_profile.assigned_region if self.staff_profile else None
+        except Exception:
+            return None
+
 
 class FarmerProfile(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "farmer_profiles"

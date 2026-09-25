@@ -24,6 +24,12 @@ class Seed(Base, UUIDPKMixin, TimestampMixin):
     crop_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     variety: Mapped[str | None] = mapped_column(String(120), nullable=True)
     price_per_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    price_grade_a: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    price_grade_b: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    price_grade_c: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    max_order_quantity_kg: Mapped[float | None] = mapped_column(
+        Numeric(14, 2), nullable=True, default=50.0, server_default="50.0"
+    )
     stock_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     on_hold_kg: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0, server_default="0")
     old_price: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
