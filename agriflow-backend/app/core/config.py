@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     STORAGE_BUCKET_AVATARS: str = "avatars"
     STORAGE_BUCKET_CROP_SCANS: str = "crop-scans"
     UPLOAD_MAX_SIZE_MB: int = 10
+    UPLOAD_MAX_DOCUMENT_MB: int = 5
 
     S3_BUCKET: str = ""
     S3_REGION: str = "ap-south-1"

@@ -91,14 +91,15 @@ async def update_crop(
 @router.delete("/{crop_id}", response_model=MessageResponse)
 async def delete_crop(
     crop_id: uuid.UUID,
-    body: s.CropDeleteIn,
     farmer: Annotated[User, Depends(require_farmer("crop.create"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    body: s.CropDeleteIn | None = None,
 ):
     # Soft delete — see crop_service.delete_own_crop. The crop, its farm
     # visits and any linked grain sales are preserved; only hidden from
     # the default (active) crop list.
-    await crop_service.delete_own_crop(db, farmer=farmer, crop_id=crop_id, reason=body.reason)
+    reason = body.reason if body else "Removed"
+    await crop_service.delete_own_crop(db, farmer=farmer, crop_id=crop_id, reason=reason)
     return MessageResponse(message="Crop field removed from your active list")
 
 

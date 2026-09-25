@@ -35,8 +35,8 @@ PROFILE_COLUMN: dict[DocumentType, str] = {
 def upload_rules(doc_type: DocumentType) -> tuple[str, set[str], int]:
     """(storage area, allowed MIME types, max size in MB) for a document type."""
     if doc_type == DocumentType.AVATAR:
-        return "avatars", IMAGE_TYPES, settings.UPLOAD_MAX_AVATAR_MB
-    return "documents", DOCUMENT_TYPES, settings.UPLOAD_MAX_SIZE_MB
+        return "avatars", IMAGE_TYPES, getattr(settings, "UPLOAD_MAX_AVATAR_MB", 2)
+    return "documents", DOCUMENT_TYPES, getattr(settings, "UPLOAD_MAX_DOCUMENT_MB", 5)
 
 
 async def upload_document(

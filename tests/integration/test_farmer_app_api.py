@@ -348,10 +348,11 @@ async def test_booking_date_must_match_the_slot(client, fake_redis, db_session):
 
 
 async def test_warehouse_directory_reports_available_capacity(client, fake_redis, db_session):
-    await _slot(db_session)
+    slot = await _slot(db_session)
     farmer = await _farmer(db_session)
     warehouses = (await client.get(f"{API}/warehouses", headers=auth_headers(farmer))).json()["data"]
-    kurnool = next(w for w in warehouses if w["name"] == "Kurnool Central")
+    kurnool = next(w for w in warehouses if w["id"] == str(slot.warehouse_id))
+    assert kurnool["name"] == "Kurnool Central"
     assert kurnool["capacity"] == 100000.0 and kurnool["available_capacity"] == 65000.0
 
 
