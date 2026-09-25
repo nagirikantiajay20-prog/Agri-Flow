@@ -77,7 +77,17 @@ class ManagerPublic(ORMBase):
     email: str | None
     role: UserRole
     status: UserStatus
+    assigned_region: str | None = None
+    department: str | None = None
     created_at: datetime
+
+
+class ManagerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone: str | None = Field(default=None, min_length=8, max_length=20)
+    email: str | None = None
+    assigned_region: str | None = None
+    department: str | None = None
 
 
 class ManagerStatusUpdate(BaseModel):

@@ -17,7 +17,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, InsufficientStockError, NotFoundError
+from app.core.exceptions import ConflictError, InsufficientStockError, NotFoundError, ValidationError
 from app.models.enums import (
     NotificationType,
     PaymentStatus,
@@ -95,30 +95,52 @@ async def purchase_seeds(
     if not seed.is_active:
         raise ConflictError("This seed is no longer available for purchase")
 
-    # 2. Validate stock.
+    # 2. Validate max order quantity limit if configured.
+    if seed.max_order_quantity_kg is not None and quantity_kg > Decimal(str(seed.max_order_quantity_kg)):
+        raise ValidationError(
+            f"Requested quantity {quantity_kg} kg exceeds maximum allowed order quantity of {seed.max_order_quantity_kg} kg",
+            details={"max_order_quantity_kg": str(seed.max_order_quantity_kg), "requested_kg": str(quantity_kg)},
+        )
+
+    # 3. Determine unit price based on grade (A, B, C) with fallback to base price_per_kg.
+    unit_price = Decimal(str(seed.price_per_kg))
+    normalized_grade = None
+    if grade:
+        g = grade.strip().upper()
+        if g == "A":
+            unit_price = Decimal(str(seed.price_grade_a)) if seed.price_grade_a is not None else unit_price
+        elif g == "B":
+            unit_price = Decimal(str(seed.price_grade_b)) if seed.price_grade_b is not None else unit_price
+        elif g == "C":
+            unit_price = Decimal(str(seed.price_grade_c)) if seed.price_grade_c is not None else unit_price
+        else:
+            raise ValidationError(f"Invalid grade '{grade}'. Must be 'A', 'B', or 'C'.")
+        normalized_grade = g
+
+    # 4. Validate stock.
     if seed.stock_kg < quantity_kg:
         raise InsufficientStockError(
             f"Only {seed.stock_kg} kg of '{seed.name}' remain in stock",
             details={"available_kg": str(seed.stock_kg), "requested_kg": str(quantity_kg)},
         )
 
-    # 3. Move the quantity from sellable stock onto hold until the
+    # 5. Move the quantity from sellable stock onto hold until the
     #    order is paid for and collected (or fails and is restocked).
     seed.stock_kg -= quantity_kg
     seed.on_hold_kg = (seed.on_hold_kg or Decimal("0")) + quantity_kg
 
-    # 4. Insert purchase (Decimal arithmetic throughout — Master Plan §20).
-    total_amount = (seed.price_per_kg * quantity_kg).quantize(Decimal("0.01"))
+    # 6. Insert purchase (Decimal arithmetic throughout — Master Plan §20).
+    total_amount = (unit_price * quantity_kg).quantize(Decimal("0.01"))
     purchase = SeedPurchase(
         farmer_id=farmer.id,
         seed_id=seed.id,
         warehouse_id=warehouse_id,
         quantity_kg=quantity_kg,
-        price_per_kg=seed.price_per_kg,
+        price_per_kg=unit_price,
         total_amount=total_amount,
         payment_method=payment_method,
         upi_id=upi_id,
-        grade=grade,
+        grade=normalized_grade,
         pickup_date=pickup_date,
         payment_status=PaymentStatus.PENDING,
         invoice_number=_generate_invoice_number("SP"),

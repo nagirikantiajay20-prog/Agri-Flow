@@ -96,6 +96,33 @@ class FarmerCreateRequest(BaseModel):
     crop_address: str | None = None
 
 
+class FarmerAdminUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone: str | None = Field(default=None, min_length=8, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_phone(cls, v: str | None) -> str | None:
+        if v is not None:
+            from app.schemas.farmer_app import normalize_phone
+
+            return normalize_phone(v)
+        return v
+
+    email: EmailStr | None = None
+    address: str | None = None
+    farm_name: str | None = Field(default=None, max_length=100)
+    village: str | None = Field(default=None, max_length=100)
+    district: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    acres_of_land: Decimal | None = Field(default=None, ge=0)
+    crop_address: str | None = None
+    soil_type: str | None = Field(default=None, max_length=80)
+    irrigation_type: str | None = Field(default=None, max_length=80)
+    primary_crop: str | None = Field(default=None, max_length=100)
+    secondary_crop: str | None = Field(default=None, max_length=100)
+
+
 class FarmerDashboardResponse(BaseModel):
     active_crops: int
     total_earned: Decimal

@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
@@ -75,12 +76,63 @@ async def create_manager(
 
 
 async def list_managers(db: AsyncSession, *, params: PageParams) -> tuple[list[User], int]:
-    query = select(User).where(User.role.in_([UserRole.MANAGER, UserRole.SUPER_ADMIN]))
+    query = (
+        select(User)
+        .where(User.role.in_([UserRole.MANAGER, UserRole.SUPER_ADMIN]))
+        .options(selectinload(User.staff_profile))
+    )
     count_query = select(func.count()).select_from(User).where(User.role.in_([UserRole.MANAGER, UserRole.SUPER_ADMIN]))
     total = (await db.execute(count_query)).scalar_one()
     query = query.order_by(User.created_at.desc()).offset((params.page - 1) * params.page_size).limit(params.page_size)
     rows = (await db.execute(query)).scalars().all()
     return list(rows), total
+
+
+async def update_manager(
+    db: AsyncSession,
+    *,
+    actor: User,
+    manager_id: uuid.UUID,
+    **fields,
+) -> User:
+    result = await db.execute(
+        select(User).where(User.id == manager_id).options(selectinload(User.staff_profile))
+    )
+    manager = result.scalar_one_or_none()
+    if manager is None or manager.role not in (UserRole.MANAGER, UserRole.SUPER_ADMIN):
+        raise NotFoundError("Manager not found")
+
+    user_fields = {"name", "phone", "email"}
+    profile_fields = {"assigned_region", "department"}
+
+    if "phone" in fields and fields["phone"] is not None and fields["phone"] != manager.phone:
+        existing = await db.execute(select(User).where(User.phone == fields["phone"], User.id != manager.id))
+        if existing.scalar_one_or_none() is not None:
+            raise ConflictError("An account with this phone number already exists")
+
+    old_val = {"name": manager.name, "phone": manager.phone}
+    for k, v in fields.items():
+        if v is not None:
+            if k in user_fields:
+                setattr(manager, k, v)
+            elif k in profile_fields:
+                if manager.staff_profile is None:
+                    manager.staff_profile = StaffProfile(user_id=manager.id)
+                    db.add(manager.staff_profile)
+                setattr(manager.staff_profile, k, v)
+
+    await audit_service.record(
+        db,
+        actor_id=actor.id,
+        action="manager.update",
+        entity_type="user",
+        entity_id=manager.id,
+        old_value=old_val,
+        new_value={"name": manager.name, "phone": manager.phone},
+    )
+    await db.flush()
+    await db.refresh(manager, ["staff_profile"])
+    return manager
 
 
 async def update_manager_status(db: AsyncSession, *, actor: User, manager_id: uuid.UUID, new_status: UserStatus) -> User:

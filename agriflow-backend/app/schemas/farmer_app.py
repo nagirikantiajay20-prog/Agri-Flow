@@ -196,6 +196,10 @@ class SeedOut(BaseModel):
     variety: str | None
     description: str | None
     price_per_kg: Number
+    price_grade_a: Number | None = None
+    price_grade_b: Number | None = None
+    price_grade_c: Number | None = None
+    max_order_quantity_kg: Number | None = None
     old_price: Number | None
     stock_kg: Number
     image_url: str | None
@@ -205,7 +209,7 @@ class SeedOut(BaseModel):
 class SeedPurchaseIn(BaseModel):
     seed_id: uuid.UUID
     quantity_kg: Decimal = Field(gt=0, le=100000)
-    grade: GrainGrade = GrainGrade.A
+    grade: GrainGrade | str | None = None
     warehouse_id: uuid.UUID | None = None
     pickup_date: date | None = None
     payment_method: str = Field(default="warehouse", max_length=40)

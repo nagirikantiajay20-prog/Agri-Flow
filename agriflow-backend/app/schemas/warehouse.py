@@ -12,8 +12,11 @@ class WarehousePublic(ORMBase):
     id: uuid.UUID
     name: str
     address: str
+    location: str | None = None
+    contact_number: str | None = None
     total_capacity_kg: Decimal
     current_load_kg: Decimal
+    manager_id: uuid.UUID | None = None
     is_active: bool
 
 
@@ -64,8 +67,20 @@ class BookingStatusUpdate(BaseModel):
 class WarehouseCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     address: str = Field(min_length=4)
+    location: str | None = None
+    contact_number: str | None = None
     total_capacity_kg: Decimal = Field(gt=0)
     manager_id: uuid.UUID | None = None
+
+
+class WarehouseUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    address: str | None = Field(default=None, min_length=4)
+    location: str | None = None
+    contact_number: str | None = None
+    total_capacity_kg: Decimal | None = Field(default=None, gt=0)
+    manager_id: uuid.UUID | None = None
+    is_active: bool | None = None
 
 
 class WarehouseInventoryAdd(BaseModel):

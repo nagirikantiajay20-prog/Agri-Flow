@@ -352,12 +352,20 @@ async def list_slots_filtered(
     return list((await db.execute(query)).scalars().all())
 
 
+async def get_warehouse(db: AsyncSession, *, warehouse_id: uuid.UUID) -> Warehouse:
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is None or not warehouse.is_active:
+        raise NotFoundError("Warehouse not found")
+    return warehouse
+
+
 async def create_warehouse(
     db: AsyncSession, *, actor: User, name: str, address: str, total_capacity_kg: Decimal,
-    manager_id: uuid.UUID | None = None,
+    location: str | None = None, contact_number: str | None = None, manager_id: uuid.UUID | None = None,
 ) -> Warehouse:
     warehouse = Warehouse(
-        name=name, address=address, total_capacity_kg=total_capacity_kg, manager_id=manager_id
+        name=name, address=address, location=location, contact_number=contact_number,
+        total_capacity_kg=total_capacity_kg, manager_id=manager_id
     )
     db.add(warehouse)
     await db.flush()
@@ -366,6 +374,119 @@ async def create_warehouse(
         new_value={"name": name, "total_capacity_kg": str(total_capacity_kg)},
     )
     return warehouse
+
+
+async def update_warehouse(
+    db: AsyncSession, *, actor: User, warehouse_id: uuid.UUID, **fields
+) -> Warehouse:
+    result = await db.execute(
+        select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
+    )
+    warehouse = result.scalar_one_or_none()
+    if warehouse is None or not warehouse.is_active:
+        raise NotFoundError("Warehouse not found")
+
+    new_total = fields.get("total_capacity_kg")
+    if new_total is not None and new_total < warehouse.current_load_kg:
+        raise CapacityExceededError(
+            f"Cannot shrink total capacity below the current load of {warehouse.current_load_kg} kg",
+            details={"current_load_kg": str(warehouse.current_load_kg), "requested_total_capacity_kg": str(new_total)},
+        )
+
+    old_val = {"name": warehouse.name, "total_capacity_kg": str(warehouse.total_capacity_kg)}
+    for k, v in fields.items():
+        if v is not None:
+            setattr(warehouse, k, v)
+
+    await audit_service.record(
+        db, actor_id=actor.id, action="warehouse.update", entity_type="warehouse", entity_id=warehouse.id,
+        old_value=old_val,
+        new_value={"name": warehouse.name, "total_capacity_kg": str(warehouse.total_capacity_kg)},
+    )
+    await db.flush()
+    return warehouse
+
+
+async def delete_warehouse(db: AsyncSession, *, actor: User, warehouse_id: uuid.UUID) -> None:
+    result = await db.execute(
+        select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
+    )
+    warehouse = result.scalar_one_or_none()
+    if warehouse is None or not warehouse.is_active:
+        raise NotFoundError("Warehouse not found")
+
+    # Safety checks: do NOT soft-delete if active bookings exist
+    active_bookings_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(BookingSlot)
+            .where(
+                BookingSlot.warehouse_id == warehouse_id,
+                BookingSlot.status.in_([
+                    BookingStatus.PENDING,
+                    BookingStatus.CONFIRMED,
+                    BookingStatus.DELIVERED,
+                    BookingStatus.INSPECTED,
+                ]),
+            )
+        )
+    ).scalar_one()
+    if active_bookings_count > 0:
+        raise ConflictError(
+            f"Cannot delete warehouse: {active_bookings_count} active booking(s) exist",
+            details={"active_bookings": active_bookings_count},
+        )
+
+    # Safety check: do NOT delete if inventory quantity > 0
+    inv_total = (
+        await db.execute(
+            select(func.coalesce(func.sum(WarehouseInventory.quantity_kg), 0)).where(
+                WarehouseInventory.warehouse_id == warehouse_id
+            )
+        )
+    ).scalar_one()
+    if inv_total > 0:
+        raise ConflictError(
+            f"Cannot delete warehouse: {inv_total} kg of grain inventory still stored",
+            details={"stored_grain_kg": str(inv_total)},
+        )
+
+    warehouse.is_active = False
+    await audit_service.record(
+        db, actor_id=actor.id, action="warehouse.delete", entity_type="warehouse", entity_id=warehouse.id
+    )
+    await db.flush()
+
+
+async def get_warehouse_inventory(db: AsyncSession, *, warehouse_id: uuid.UUID) -> list[WarehouseInventory]:
+    warehouse = await db.get(Warehouse, warehouse_id)
+    if warehouse is None or not warehouse.is_active:
+        raise NotFoundError("Warehouse not found")
+    result = await db.execute(
+        select(WarehouseInventory).where(WarehouseInventory.warehouse_id == warehouse_id)
+    )
+    return list(result.scalars().all())
+
+
+async def delete_slot(db: AsyncSession, *, actor: User, slot_id: uuid.UUID) -> None:
+    result = await db.execute(
+        select(WarehouseSlot).where(WarehouseSlot.id == slot_id).with_for_update()
+    )
+    slot = result.scalar_one_or_none()
+    if slot is None:
+        raise NotFoundError("Warehouse slot not found")
+
+    if slot.booked_kg > 0 or slot.current_booking_count > 0:
+        raise ConflictError(
+            "Cannot delete warehouse slot: active bookings exist for this slot",
+            details={"booked_kg": str(slot.booked_kg), "current_booking_count": slot.current_booking_count},
+        )
+
+    slot.status = "cancelled"
+    await audit_service.record(
+        db, actor_id=actor.id, action="warehouse_slot.delete", entity_type="warehouse_slot", entity_id=slot.id
+    )
+    await db.flush()
 
 
 async def add_inventory(

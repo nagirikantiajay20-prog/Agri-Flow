@@ -228,6 +228,53 @@ async def create_farmer(
     return farmer
 
 
+async def update_farmer_by_admin(
+    db: AsyncSession,
+    *,
+    actor: User,
+    farmer_id: uuid.UUID,
+    **fields,
+) -> User:
+    farmer = await load_farmer_with_profile(db, farmer_id=farmer_id)
+    if farmer is None or farmer.role != UserRole.FARMER:
+        raise NotFoundError("Farmer not found")
+
+    user_fields = {"name", "phone", "email"}
+    profile_fields = {
+        "address", "farm_name", "village", "district", "state", "acres_of_land",
+        "crop_address", "soil_type", "irrigation_type", "primary_crop", "secondary_crop",
+    }
+
+    if "phone" in fields and fields["phone"] is not None and fields["phone"] != farmer.phone:
+        existing = await db.execute(select(User).where(User.phone == fields["phone"], User.id != farmer.id))
+        if existing.scalar_one_or_none() is not None:
+            raise ConflictError("An account with this phone number already exists")
+
+    old_val = {"name": farmer.name, "phone": farmer.phone}
+    for k, v in fields.items():
+        if v is not None:
+            if k in user_fields:
+                setattr(farmer, k, v)
+            elif k in profile_fields:
+                if farmer.farmer_profile is None:
+                    farmer.farmer_profile = FarmerProfile(user_id=farmer.id)
+                    db.add(farmer.farmer_profile)
+                setattr(farmer.farmer_profile, k, v)
+
+    await audit_service.record(
+        db,
+        actor_id=actor.id,
+        action="farmer.admin_update",
+        entity_type="user",
+        entity_id=farmer.id,
+        old_value=old_val,
+        new_value={"name": farmer.name, "phone": farmer.phone},
+    )
+    await db.flush()
+    await db.refresh(farmer, ["farmer_profile"])
+    return farmer
+
+
 async def list_bank_change_requests(
     db: AsyncSession, *, params: PageParams
 ) -> tuple[list[BankChangeRequest], int]:
