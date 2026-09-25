@@ -8,8 +8,8 @@ app.services.grain_sale_service.pay_grain_sale. This closes off the
 class of abuse that exists today in agriflow-web's ledgerService.js,
 which writes `transactions` directly from the frontend.
 """
-from datetime import date
 import uuid
+from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

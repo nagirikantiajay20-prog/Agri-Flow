@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -8,6 +9,7 @@ from app.api.v1.farmer._mappers import profile_out
 from app.core.database import get_db
 from app.core.dependencies import require_farmer
 from app.core.exceptions import ConflictError, NotFoundError
+from app.models.ledger import BankChangeRequest
 from app.models.user import FarmerProfile, User
 from app.schemas import farmer_app as s
 from app.schemas.common import SuccessResponse
@@ -25,11 +27,6 @@ async def _load(db: AsyncSession, farmer: User) -> FarmerProfile:
     if profile is None:
         raise NotFoundError("Farmer profile not found")
     return profile
-
-
-import uuid
-
-from app.models.ledger import BankChangeRequest
 
 
 async def _load_latest_bank_request(db: AsyncSession, farmer_id: uuid.UUID) -> BankChangeRequest | None:

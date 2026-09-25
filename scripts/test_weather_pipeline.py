@@ -1,19 +1,17 @@
 import asyncio
-import json
 import sys
-import time
 from pathlib import Path
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core import redis
-from app.core.config import settings
-from app.services import weather_service, farmer_app_service
-from app.models.user import User
-from app.core.database import session_scope
 from sqlalchemy import select
+
+from app.core import redis
+from app.core.database import session_scope
+from app.models.user import User
+from app.services import farmer_app_service, weather_service
+
 
 async def test_1_open_meteo_success():
     print("\n--- Test 1: Open-Meteo Success (Live Fetch) ---")

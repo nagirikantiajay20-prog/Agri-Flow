@@ -4,7 +4,7 @@ Verifies warehouse physical capacity locking, direct date booking (warehouse_slo
 cancellation capacity release, and Redis weather fallback.
 """
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,7 +13,6 @@ import pytest
 from app.core.exceptions import (
     CapacityExceededError,
     ConflictError,
-    NotFoundError,
     ValidationError,
 )
 from app.models.enums import BookingStatus, UserRole, UserStatus

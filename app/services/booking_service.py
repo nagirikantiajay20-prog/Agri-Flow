@@ -16,7 +16,7 @@ production bug fixed in
 20260714060000_fix_booking_notification_quintals.sql (Master Plan §1.4).
 """
 import uuid
-from datetime import date, time
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func, select

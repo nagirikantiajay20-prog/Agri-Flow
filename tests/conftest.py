@@ -13,7 +13,6 @@ Note: this project pins to pytest-asyncio's config-based loop scoping
 rather than a custom `event_loop` fixture override, which pytest-asyncio
 1.x deprecated in favor of that setting.
 """
-import os
 import uuid
 
 import pytest

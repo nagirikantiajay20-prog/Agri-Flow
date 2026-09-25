@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.farmer._mappers import paginated
 from app.core.database import get_db
 from app.core.dependencies import Pagination, require_farmer
+from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas import farmer_app as s
 from app.schemas.common import MessageResponse, PaginatedResponse, SuccessResponse
-from app.core.logging import get_logger
 from app.services import notification_read_service, push_service
 
 logger = get_logger(__name__)
