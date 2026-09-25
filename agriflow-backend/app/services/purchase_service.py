@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, InsufficientStockError, NotFoundError, ValidationError
@@ -26,8 +26,9 @@ from app.models.enums import (
     TransactionStatus,
 )
 from app.models.ledger import Transaction
-from app.models.seed import Seed, SeedPurchase
+from app.models.seed import Seed, SeedPurchase, SeedWarehouse
 from app.models.user import User
+from app.models.warehouse import Warehouse
 from app.schemas.common import PageParams
 from app.services import audit_service, notification_service
 
@@ -44,10 +45,122 @@ async def list_seeds(db: AsyncSession, *, active_only: bool = True) -> list[Seed
     return list(result.scalars().all())
 
 
+async def get_warehouses_for_seeds(
+    db: AsyncSession, seed_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[Warehouse]]:
+    if not seed_ids:
+        return {}
+    stmt = (
+        select(SeedWarehouse.seed_id, Warehouse)
+        .join(Warehouse, Warehouse.id == SeedWarehouse.warehouse_id)
+        .where(SeedWarehouse.seed_id.in_(seed_ids), Warehouse.is_active.is_(True))
+        .order_by(Warehouse.name)
+    )
+    res = await db.execute(stmt)
+    mapping: dict[uuid.UUID, list[Warehouse]] = {sid: [] for sid in seed_ids}
+    for sid, wh in res.all():
+        mapping[sid].append(wh)
+    return mapping
+
+
+async def list_seed_warehouses(db: AsyncSession, seed_id: uuid.UUID) -> list[Warehouse]:
+    seed = await db.get(Seed, seed_id)
+    if seed is None:
+        raise NotFoundError("Seed not found")
+    stmt = (
+        select(Warehouse)
+        .join(SeedWarehouse, SeedWarehouse.warehouse_id == Warehouse.id)
+        .where(SeedWarehouse.seed_id == seed_id, Warehouse.is_active.is_(True))
+        .order_by(Warehouse.name)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def assign_seed_warehouses(
+    db: AsyncSession, *, admin: User, seed_id: uuid.UUID, warehouse_ids: list[uuid.UUID]
+) -> list[Warehouse]:
+    seed = await db.get(Seed, seed_id)
+    if seed is None:
+        raise NotFoundError("Seed not found")
+    unique_ids = list(dict.fromkeys(warehouse_ids))
+    existing_links = (
+        await db.execute(select(SeedWarehouse.warehouse_id).where(SeedWarehouse.seed_id == seed_id))
+    ).scalars().all()
+    existing_set = set(existing_links)
+
+    for wid in unique_ids:
+        wh = await db.get(Warehouse, wid)
+        if wh is None or not wh.is_active:
+            raise ValidationError(f"Warehouse '{wid}' does not exist or is inactive")
+        if wid not in existing_set:
+            db.add(SeedWarehouse(seed_id=seed_id, warehouse_id=wid))
+            existing_set.add(wid)
+
+    if not seed.warehouse_id and unique_ids:
+        seed.warehouse_id = unique_ids[0]
+
+    await audit_service.record(
+        db,
+        actor_id=admin.id,
+        action="seed.assign_warehouses",
+        entity_type="seed",
+        entity_id=seed.id,
+        new_value={"warehouse_ids": [str(w) for w in unique_ids]},
+    )
+    await db.flush()
+    return await list_seed_warehouses(db, seed_id)
+
+
+async def remove_seed_warehouse(
+    db: AsyncSession, *, admin: User, seed_id: uuid.UUID, warehouse_id: uuid.UUID
+) -> None:
+    seed = await db.get(Seed, seed_id)
+    if seed is None:
+        raise NotFoundError("Seed not found")
+    result = await db.execute(
+        delete(SeedWarehouse).where(
+            SeedWarehouse.seed_id == seed_id, SeedWarehouse.warehouse_id == warehouse_id
+        )
+    )
+    if result.rowcount == 0:
+        raise NotFoundError("Warehouse assignment not found for this seed")
+    if seed.warehouse_id == warehouse_id:
+        remaining = (
+            await db.execute(select(SeedWarehouse.warehouse_id).where(SeedWarehouse.seed_id == seed_id))
+        ).scalars().first()
+        seed.warehouse_id = remaining
+    await audit_service.record(
+        db,
+        actor_id=admin.id,
+        action="seed.remove_warehouse",
+        entity_type="seed",
+        entity_id=seed.id,
+        old_value={"warehouse_id": str(warehouse_id)},
+    )
+    await db.flush()
+
+
 async def create_seed(db: AsyncSession, *, admin: User, **fields) -> Seed:
+    warehouse_ids = fields.pop("warehouse_ids", None)
+    if warehouse_ids:
+        warehouse_ids = list(dict.fromkeys(warehouse_ids))
+        if fields.get("warehouse_id") is None:
+            fields["warehouse_id"] = warehouse_ids[0]
+    elif fields.get("warehouse_id") is not None:
+        warehouse_ids = [fields["warehouse_id"]]
+    else:
+        warehouse_ids = []
+
     seed = Seed(**fields)
     db.add(seed)
     await db.flush()
+
+    for wid in warehouse_ids:
+        wh = await db.get(Warehouse, wid)
+        if wh and wh.is_active:
+            db.add(SeedWarehouse(seed_id=seed.id, warehouse_id=wid))
+    await db.flush()
+
     await audit_service.record(db, actor_id=admin.id, action="seed.create", entity_type="seed", entity_id=seed.id)
     return seed
 
@@ -56,9 +169,33 @@ async def update_seed(db: AsyncSession, *, admin: User, seed_id: uuid.UUID, **fi
     seed = await db.get(Seed, seed_id)
     if seed is None:
         raise NotFoundError("Seed not found")
+
+    warehouse_ids_provided = "warehouse_ids" in fields
+    warehouse_ids = fields.pop("warehouse_ids", None)
+
     for k, v in fields.items():
         if v is not None:
             setattr(seed, k, v)
+
+    if warehouse_ids_provided and warehouse_ids is not None:
+        warehouse_ids = list(dict.fromkeys(warehouse_ids))
+        await db.execute(delete(SeedWarehouse).where(SeedWarehouse.seed_id == seed_id))
+        for wid in warehouse_ids:
+            wh = await db.get(Warehouse, wid)
+            if wh and wh.is_active:
+                db.add(SeedWarehouse(seed_id=seed.id, warehouse_id=wid))
+        if "warehouse_id" not in fields:
+            seed.warehouse_id = warehouse_ids[0] if warehouse_ids else None
+    elif "warehouse_id" in fields and fields["warehouse_id"] is not None:
+        wid = fields["warehouse_id"]
+        existing = await db.execute(
+            select(SeedWarehouse).where(SeedWarehouse.seed_id == seed_id, SeedWarehouse.warehouse_id == wid)
+        )
+        if not existing.scalar_one_or_none():
+            wh = await db.get(Warehouse, wid)
+            if wh and wh.is_active:
+                db.add(SeedWarehouse(seed_id=seed_id, warehouse_id=wid))
+
     await audit_service.record(db, actor_id=admin.id, action="seed.update", entity_type="seed", entity_id=seed.id)
     await db.flush()
     return seed
@@ -116,6 +253,27 @@ async def purchase_seeds(
         else:
             raise ValidationError(f"Invalid grade '{grade}'. Must be 'A', 'B', or 'C'.")
         normalized_grade = g
+
+    # 3.5 Validate warehouse assignment.
+    assigned_wh_ids = (
+        await db.execute(select(SeedWarehouse.warehouse_id).where(SeedWarehouse.seed_id == seed.id))
+    ).scalars().all()
+
+    if assigned_wh_ids:
+        if warehouse_id is not None and warehouse_id not in assigned_wh_ids:
+            raise ValidationError(
+                f"Warehouse '{warehouse_id}' is not assigned to stock seed '{seed.name}'",
+                details={"seed_id": str(seed.id), "assigned_warehouses": [str(w) for w in assigned_wh_ids]},
+            )
+        if warehouse_id is None:
+            warehouse_id = seed.warehouse_id if seed.warehouse_id in assigned_wh_ids else assigned_wh_ids[0]
+    elif warehouse_id is None:
+        warehouse_id = seed.warehouse_id
+
+    if warehouse_id is not None:
+        wh = await db.get(Warehouse, warehouse_id)
+        if wh is None or not wh.is_active:
+            raise NotFoundError(f"Warehouse '{warehouse_id}' not found or inactive")
 
     # 4. Validate stock.
     if seed.stock_kg < quantity_kg:
@@ -268,7 +426,10 @@ async def list_seeds_filtered(
     if max_price is not None:
         query = query.where(Seed.price_per_kg <= max_price)
     if warehouse_id is not None:
-        query = query.where(Seed.warehouse_id == warehouse_id)
+        query = query.where(
+            (Seed.warehouse_id == warehouse_id)
+            | (Seed.id.in_(select(SeedWarehouse.seed_id).where(SeedWarehouse.warehouse_id == warehouse_id)))
+        )
     if in_stock_only:
         query = query.where(Seed.stock_kg > 0)
     return list((await db.execute(query.order_by(Seed.name))).scalars().all())

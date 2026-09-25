@@ -6,6 +6,10 @@ never Float — and the service layer must use Python Decimal exclusively.
 """
 import uuid
 from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.warehouse import Warehouse
 
 from sqlalchemy import Boolean, Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
@@ -61,6 +65,7 @@ class SeedWarehouse(Base, UUIDPKMixin):
     )
 
     seed: Mapped["Seed"] = relationship(lazy="raise", back_populates="warehouse_links")
+    warehouse: Mapped["Warehouse"] = relationship("Warehouse", lazy="raise")
 
 
 class SeedPurchase(Base, UUIDPKMixin, CreatedAtOnlyMixin):

@@ -12,6 +12,7 @@ from app.models.user import FarmerProfile, User
 from app.models.warehouse import BookingSlot, Warehouse, WarehouseSlot
 from app.schemas import farmer_app as s
 from app.schemas.common import PaginatedResponse, Pagination
+from app.schemas.warehouse import WarehouseBrief
 
 KG_PER_QUINTAL = Decimal("100")
 
@@ -74,7 +75,18 @@ def profile_out(
     )
 
 
-def seed_out(seed: Seed) -> s.SeedOut:
+def seed_out(seed: Seed, warehouses: list[Warehouse] | None = None) -> s.SeedOut:
+    wh_list = warehouses or []
+    wh_briefs = [
+        WarehouseBrief(
+            id=w.id,
+            name=w.name,
+            address=w.address,
+            location=w.location,
+            contact_number=w.contact_number,
+        )
+        for w in wh_list
+    ]
     return s.SeedOut(
         id=seed.id,
         name=seed.name,
@@ -90,6 +102,8 @@ def seed_out(seed: Seed) -> s.SeedOut:
         stock_kg=Decimal(seed.stock_kg),
         image_url=storage.read_url(seed.image_url),
         warehouse_id=seed.warehouse_id,
+        warehouse_ids=[w.id for w in wh_list],
+        warehouses=wh_briefs,
     )
 
 

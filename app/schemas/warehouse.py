@@ -20,6 +20,14 @@ class WarehousePublic(ORMBase):
     is_active: bool
 
 
+class WarehouseBrief(ORMBase):
+    id: uuid.UUID
+    name: str
+    address: str | None = None
+    location: str | None = None
+    contact_number: str | None = None
+
+
 class WarehouseSlotPublic(ORMBase):
     id: uuid.UUID
     warehouse_id: uuid.UUID

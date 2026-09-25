@@ -201,3 +201,176 @@ async def test_seed_purchase_grade_and_max_order_quantity_via_api(client, active
     )
     assert order_exceed.status_code == 422
     assert "exceeds maximum allowed order quantity" in order_exceed.json()["error"]["message"]
+
+
+async def test_seed_multiple_warehouse_contracts(client, super_admin, manager, active_farmer):
+    # 1. Create 3 warehouses: W1, W2, W3
+    wh1_resp = await client.post(
+        "/api/v1/warehouses",
+        headers=auth_headers(super_admin),
+        json={"name": "Guntur Depot", "address": "Market Yard, Guntur", "total_capacity_kg": 20000.0},
+    )
+    wh1_id = wh1_resp.json()["data"]["id"]
+
+    wh2_resp = await client.post(
+        "/api/v1/warehouses",
+        headers=auth_headers(super_admin),
+        json={"name": "Vijayawada Hub", "address": "NH-16, Vijayawada", "total_capacity_kg": 30000.0},
+    )
+    wh2_id = wh2_resp.json()["data"]["id"]
+
+    wh3_resp = await client.post(
+        "/api/v1/warehouses",
+        headers=auth_headers(super_admin),
+        json={"name": "Warangal Store", "address": "Grain Mandi, Warangal", "total_capacity_kg": 25000.0},
+    )
+    wh3_id = wh3_resp.json()["data"]["id"]
+
+    # 2. Admin creates Seed with multiple warehouses (Option A: warehouse_ids)
+    seed_resp = await client.post(
+        "/api/v1/seeds",
+        headers=auth_headers(super_admin),
+        json={
+            "name": "Multi-Hub Paddy Seed",
+            "variety": "MTU-1010",
+            "price_per_kg": 45.0,
+            "stock_kg": 1000.0,
+            "warehouse_ids": [wh1_id, wh2_id],
+        },
+    )
+    assert seed_resp.status_code == 201, seed_resp.text
+    s_data = seed_resp.json()["data"]
+    seed_id = s_data["id"]
+    assert set(s_data["warehouse_ids"]) == {wh1_id, wh2_id}
+    assert len(s_data["warehouses"]) == 2
+    wh_names = {w["name"] for w in s_data["warehouses"]}
+    assert wh_names == {"Guntur Depot", "Vijayawada Hub"}
+    assert s_data["warehouse_id"] == wh1_id  # legacy primary fallback populated
+
+    # 3. Read assigned warehouses via Option B sub-resource GET /seeds/{id}/warehouses
+    get_wh_resp = await client.get(
+        f"/api/v1/seeds/{seed_id}/warehouses",
+        headers=auth_headers(manager),
+    )
+    assert get_wh_resp.status_code == 200
+    assert len(get_wh_resp.json()["data"]) == 2
+
+    # 4. Assign an additional warehouse via Option B POST /seeds/{id}/warehouses
+    assign_resp = await client.post(
+        f"/api/v1/seeds/{seed_id}/warehouses",
+        headers=auth_headers(super_admin),
+        json={"warehouse_ids": [wh3_id]},
+    )
+    assert assign_resp.status_code == 200, assign_resp.text
+    assert len(assign_resp.json()["data"]) == 3
+    assert {w["id"] for w in assign_resp.json()["data"]} == {wh1_id, wh2_id, wh3_id}
+
+    # 5. Remove a warehouse via Option B DELETE /seeds/{id}/warehouses/{wh_id}
+    del_wh_resp = await client.delete(
+        f"/api/v1/seeds/{seed_id}/warehouses/{wh1_id}",
+        headers=auth_headers(super_admin),
+    )
+    assert del_wh_resp.status_code == 204
+
+    # Verify W1 removed, W2 and W3 remain
+    get_wh_resp2 = await client.get(
+        f"/api/v1/seeds/{seed_id}/warehouses",
+        headers=auth_headers(manager),
+    )
+    assert {w["id"] for w in get_wh_resp2.json()["data"]} == {wh2_id, wh3_id}
+
+    # 6. Admin updates seed warehouses via Option A (PATCH /seeds/{id} with warehouse_ids)
+    patch_seed_resp = await client.patch(
+        f"/api/v1/seeds/{seed_id}",
+        headers=auth_headers(super_admin),
+        json={"warehouse_ids": [wh2_id]},
+    )
+    assert patch_seed_resp.status_code == 200
+    assert patch_seed_resp.json()["data"]["warehouse_ids"] == [wh2_id]
+    assert len(patch_seed_resp.json()["data"]["warehouses"]) == 1
+
+    # Re-assign W3 as well so both W2 and W3 stock the seed
+    patch_both = await client.patch(
+        f"/api/v1/seeds/{seed_id}",
+        headers=auth_headers(super_admin),
+        json={"warehouse_ids": [wh2_id, wh3_id]},
+    )
+    assert patch_both.status_code == 200
+    assert set(patch_both.json()["data"]["warehouse_ids"]) == {wh2_id, wh3_id}
+
+    # 7. Farmer catalog: list seeds returns assigned warehouses
+    farmer_catalog = await client.get(
+        "/api/v1/farmer/seeds",
+        headers=auth_headers(active_farmer),
+    )
+    assert farmer_catalog.status_code == 200
+    catalog_items = [x for x in farmer_catalog.json()["data"] if x["id"] == seed_id]
+    assert len(catalog_items) == 1
+    seed_item = catalog_items[0]
+    assert set(seed_item["warehouse_ids"]) == {wh2_id, wh3_id}
+    assert len(seed_item["warehouses"]) == 2
+
+    # Farmer single seed detail
+    farmer_seed = await client.get(
+        f"/api/v1/farmer/seeds/{seed_id}",
+        headers=auth_headers(active_farmer),
+    )
+    assert farmer_seed.status_code == 200
+    assert set(farmer_seed.json()["data"]["warehouse_ids"]) == {wh2_id, wh3_id}
+
+    # Warehouse filter in farmer catalog
+    filter_w2 = await client.get(
+        f"/api/v1/farmer/seeds?warehouse_id={wh2_id}",
+        headers=auth_headers(active_farmer),
+    )
+    assert any(x["id"] == seed_id for x in filter_w2.json()["data"])
+
+    filter_w1 = await client.get(
+        f"/api/v1/farmer/seeds?warehouse_id={wh1_id}",
+        headers=auth_headers(active_farmer),
+    )
+    assert not any(x["id"] == seed_id for x in filter_w1.json()["data"])
+
+    # 8. Farmer purchase validation:
+    # Attempting to purchase from unassigned warehouse W1 -> 422 ValidationError
+    unassigned_order = await client.post(
+        "/api/v1/farmer/seeds/purchase",
+        headers=auth_headers(active_farmer),
+        json={
+            "seed_id": seed_id,
+            "quantity_kg": 50.0,
+            "warehouse_id": wh1_id,
+            "payment_method": "warehouse",
+        },
+    )
+    assert unassigned_order.status_code == 422
+    assert "not assigned to stock seed" in unassigned_order.json()["error"]["message"]
+
+    # Purchasing from assigned warehouse W2 -> 201 Created
+    valid_order = await client.post(
+        "/api/v1/farmer/seeds/purchase",
+        headers=auth_headers(active_farmer),
+        json={
+            "seed_id": seed_id,
+            "quantity_kg": 50.0,
+            "warehouse_id": wh2_id,
+            "payment_method": "warehouse",
+        },
+    )
+    assert valid_order.status_code == 201, valid_order.text
+    receipt = valid_order.json()["data"]
+    assert receipt["warehouse_id"] == wh2_id
+    assert receipt["warehouse_name"] == "Vijayawada Hub"
+
+    # Purchasing with warehouse_id omitted defaults to an assigned warehouse -> 201 Created
+    auto_order = await client.post(
+        "/api/v1/farmer/seeds/purchase",
+        headers=auth_headers(active_farmer),
+        json={
+            "seed_id": seed_id,
+            "quantity_kg": 25.0,
+            "payment_method": "warehouse",
+        },
+    )
+    assert auto_order.status_code == 201, auto_order.text
+    assert auto_order.json()["data"]["warehouse_id"] in [wh2_id, wh3_id]

@@ -91,6 +91,8 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
         {"crop_type": "Rice", "acres": "1", "sowing_date": "2026-01-01"},
     ),
     ("GET", "/api/v1/seeds", set(ALL_ROLES), None),
+    ("GET", f"/api/v1/seeds/{_ID}", set(ALL_ROLES), None),
+    ("GET", f"/api/v1/seeds/{_ID}/warehouses", set(ALL_ROLES), None),
     ("GET", "/api/v1/seed-purchases", set(ALL_ROLES), None),
     ("POST", "/api/v1/seed-purchases", {FARMER, SUPER_ADMIN}, {"seed_id": _ID, "quantity_kg": "1"}),
     ("GET", "/api/v1/grain-sales", set(ALL_ROLES), None),
@@ -243,6 +245,8 @@ ENDPOINTS: list[tuple[str, str, set[str], dict | None]] = [
     ("POST", "/api/v1/seeds", {SUPER_ADMIN}, {"name": "S", "price_per_kg": "1", "stock_kg": "1"}),
     ("PATCH", f"/api/v1/seeds/{_ID}", {SUPER_ADMIN}, {"name": "S2"}),
     ("DELETE", f"/api/v1/seeds/{_ID}", {SUPER_ADMIN}, None),
+    ("POST", f"/api/v1/seeds/{_ID}/warehouses", {SUPER_ADMIN}, {"warehouse_ids": [_ID]}),
+    ("DELETE", f"/api/v1/seeds/{_ID}/warehouses/{_ID}", {SUPER_ADMIN}, None),
     ("POST", "/api/v1/warehouses", {SUPER_ADMIN}, {"name": "W", "address": "addr", "total_capacity_kg": "100"}),
     ("DELETE", f"/api/v1/warehouses/{_ID}", {SUPER_ADMIN}, None),
     (

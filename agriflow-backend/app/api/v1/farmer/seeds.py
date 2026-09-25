@@ -35,7 +35,8 @@ async def list_seeds(
         db, q=q, crop_type=crop_type, min_price=min_price, max_price=max_price,
         warehouse_id=warehouse_id, in_stock_only=in_stock_only,
     )
-    return SuccessResponse(data=[seed_out(x) for x in seeds])
+    wh_map = await purchase_service.get_warehouses_for_seeds(db, [x.id for x in seeds])
+    return SuccessResponse(data=[seed_out(x, wh_map.get(x.id, [])) for x in seeds])
 
 
 @router.post("/purchase", response_model=SuccessResponse[s.SeedPurchaseReceipt], status_code=201)
@@ -63,6 +64,7 @@ async def purchase(
         pickup_date=body.pickup_date,
     )
     seed = await db.get(Seed, body.seed_id)
+    receipt_wh = await db.get(Warehouse, order.warehouse_id) if order.warehouse_id else None
     return SuccessResponse(
         data=s.SeedPurchaseReceipt(
             order_id=order.id,
@@ -70,8 +72,8 @@ async def purchase(
             seed_name=seed.name,
             quantity_kg=Decimal(order.quantity_kg),
             grade=order.grade,
-            warehouse_id=warehouse_id,
-            warehouse_name=warehouse.name if warehouse else None,
+            warehouse_id=order.warehouse_id,
+            warehouse_name=receipt_wh.name if receipt_wh else None,
             pickup_date=order.pickup_date,
             price_per_kg=Decimal(order.price_per_kg),
             total_amount=Decimal(order.total_amount),
@@ -101,6 +103,8 @@ async def purchase_history(
             .limit(params.page_size)
         )
     ).all()
+    seed_ids = [seed.id for _, seed in rows]
+    wh_map = await purchase_service.get_warehouses_for_seeds(db, seed_ids)
     data = [
         s.SeedPurchaseOut(
             id=p.id,
@@ -113,7 +117,7 @@ async def purchase_history(
             pickup_date=p.pickup_date,
             warehouse_id=p.warehouse_id,
             created_at=p.created_at,
-            seed=seed_out(seed),
+            seed=seed_out(seed, wh_map.get(seed.id, [])),
         )
         for p, seed in rows
     ]
@@ -133,4 +137,5 @@ async def get_seed(
     seed = await db.get(Seed, seed_id)
     if seed is None:
         raise NotFoundError("Seed not found")
-    return SuccessResponse(data=seed_out(seed))
+    wh_map = await purchase_service.get_warehouses_for_seeds(db, [seed.id])
+    return SuccessResponse(data=seed_out(seed, wh_map.get(seed.id, [])))

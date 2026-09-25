@@ -204,6 +204,8 @@ class SeedOut(BaseModel):
     stock_kg: Number
     image_url: str | None
     warehouse_id: uuid.UUID | None
+    warehouse_ids: list[uuid.UUID] = Field(default_factory=list)
+    warehouses: list[WarehouseBrief] = Field(default_factory=list)
 
 
 class SeedPurchaseIn(BaseModel):
@@ -404,8 +406,9 @@ class BookSlotOut(BaseModel):
 class WarehouseBrief(BaseModel):
     id: uuid.UUID
     name: str
-    address: str
-    contact_number: str | None
+    address: str | None = None
+    location: str | None = None
+    contact_number: str | None = None
 
 
 class BookingOut(BaseModel):
