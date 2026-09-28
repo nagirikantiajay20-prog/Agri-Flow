@@ -55,7 +55,7 @@ String getGrainAsset(String? type) {
   if (t.contains('corn') && !t.contains('maize')) return 'assets/images/sweet-corn-seeds.jpg';
   if (t.contains('groundnut')) return 'assets/images/groundnut.png';
   if (t.contains('wheat')) return 'assets/images/wheat-seeds.jpg';
-  if (t.contains('sugarcane')) return 'assets/images/bajra.png'; // closest available
+  if (t.contains('sugarcane')) return 'assets/images/sugarcane.jpg';
   if (t.contains('bajra') || t.contains('millet')) return 'assets/images/bajra.png';
   if (t.contains('soybean') || t.contains('gram') || t.contains('pulses')) return 'assets/images/soybean-seeds.png';
   if (t.contains('barley')) return 'assets/images/barley-seeds.jpg';
