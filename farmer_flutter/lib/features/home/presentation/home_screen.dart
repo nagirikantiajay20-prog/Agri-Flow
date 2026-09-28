@@ -735,15 +735,19 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final Color badgeTextColor;
     final String statusLabel;
 
-    if (isHarvested) {
+    // Derive badge from actual stage string, NOT from progress %.
+    // stage_progress_percent is date-based (elapsed/span), so it won't
+    // land exactly on 0/50/75/100 except at sowing day & harvest day.
+    final stageLower = stageStr.toLowerCase();
+    if (isHarvested || stageLower.contains('harvest')) {
       statusLabel = 'Harvested';
       badgeBg = const Color(0xFFDCFCE7);
       badgeTextColor = const Color(0xFF166534);
-    } else if (progressPct == 75.0) {
+    } else if (stageLower == 'maturity') {
       statusLabel = 'Maturity';
       badgeBg = const Color(0xFFE8F5E9);
       badgeTextColor = const Color(0xFF15803D);
-    } else if (progressPct == 50.0) {
+    } else if (stageLower == 'growing') {
       statusLabel = 'Growing';
       badgeBg = const Color(0xFFE8F5E9);
       badgeTextColor = const Color(0xFF2E7D32);
@@ -823,13 +827,21 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(context.tr('todaysMandiPrices'), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF15302A))),
+            Expanded(
+              child: Text(
+                context.tr('todaysMandiPrices'),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF15302A)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             InkWell(
               onTap: _refreshMarketRates,
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       _ratesUpdatedAt != null
@@ -845,6 +857,7 @@ class HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
+
           ],
         ),
         const SizedBox(height: 12),

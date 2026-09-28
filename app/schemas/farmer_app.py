@@ -318,8 +318,11 @@ class CropUpdateIn(_Strict):
     def _validate_comment(cls, v: str | None) -> str | None:
         if v is not None:
             v = v.strip()
+            # Empty string after strip → treat as "clear the comment" (set to None)
+            # rather than raising a 422. The client omits the key when the user
+            # leaves the field blank, but extra safety never hurts.
             if not v:
-                raise ValueError("Farmer comment cannot be empty or whitespace only")
+                return None
         return v
 
 

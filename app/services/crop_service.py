@@ -321,6 +321,7 @@ async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID,
     has_comment = "farmer_comment" in updates
     farmer_comment = updates.pop("farmer_comment", None)
     if has_comment:
+        # farmer_comment=None means "clear it" (empty string was coerced to None by validator)
         crop.farmer_comment = farmer_comment
     old = {k: str(getattr(crop, k)) for k in updates if hasattr(crop, k)}
     for field, value in updates.items():
