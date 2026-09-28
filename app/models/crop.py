@@ -64,6 +64,7 @@ class Crop(Base, UUIDPKMixin, TimestampMixin):
     )
     current_month: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    farmer_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     farm_visits: Mapped[list["FarmVisit"]] = relationship(

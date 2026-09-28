@@ -265,6 +265,8 @@ class CropOut(BaseModel):
     status: str | CropStage = Field(description="Growth stage shown in the app")
     lifecycle_status: str = Field(description="growing | harvested | failed | sold")
     notes: str | None
+    farmer_comment: str | None = None
+    stage_progress_percent: int = Field(default=0, description="0 | 50 | 75 | 100 derived deterministically from crop stage")
     created_at: datetime
     deleted_at: datetime | None = Field(
         default=None, description="Set when the farmer removed this crop; the record is kept for history"

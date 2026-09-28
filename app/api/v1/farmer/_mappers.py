@@ -107,6 +107,21 @@ def seed_out(seed: Seed, warehouses: list[Warehouse] | None = None) -> s.SeedOut
 
 
 
+def get_crop_stage_progress(stage: Any, lifecycle_status: str) -> int:
+    st = stage.value if hasattr(stage, "value") else str(stage) if stage is not None else ""
+    st = st.strip().lower()
+    lc = lifecycle_status.strip().lower() if lifecycle_status else ""
+    if lc == "harvested" or st in ("harvest", "harvested"):
+        return 100
+    if st == "maturity":
+        return 75
+    if st == "growing":
+        return 50
+    if st == "sowing":
+        return 0
+    return 0
+
+
 def crop_out(crop: Crop) -> s.CropOut:
     life_st = crop.status.value if hasattr(crop.status, "value") else str(crop.status)
     return s.CropOut(
@@ -120,6 +135,8 @@ def crop_out(crop: Crop) -> s.CropOut:
         status=crop.stage,
         lifecycle_status=life_st,
         notes=crop.notes,
+        farmer_comment=crop.farmer_comment,
+        stage_progress_percent=get_crop_stage_progress(crop.stage, life_st),
         created_at=crop.created_at,
         deleted_at=crop.deleted_at,
         is_deleted=crop.deleted_at is not None,

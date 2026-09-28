@@ -318,7 +318,10 @@ async def get_own_active_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.U
 
 async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID, updates: dict) -> Crop:
     crop = await get_own_active_crop(db, farmer=farmer, crop_id=crop_id)
+    has_comment = "farmer_comment" in updates
     farmer_comment = updates.pop("farmer_comment", None)
+    if has_comment:
+        crop.farmer_comment = farmer_comment
     old = {k: str(getattr(crop, k)) for k in updates if hasattr(crop, k)}
     for field, value in updates.items():
         if hasattr(crop, field):

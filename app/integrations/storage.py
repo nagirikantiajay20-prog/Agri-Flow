@@ -111,7 +111,7 @@ async def create_presigned_upload(*, bucket_key: str, file_name: str, content_ty
             raise ValidationError("S3 storage is not configured")
         upload_url = _s3_client().generate_presigned_url(
             "put_object",
-            Params={"Bucket": settings.S3_BUCKET, "Key": object_path, "ContentType": content_type},
+            Params={"Bucket": bucket, "Key": object_name, "ContentType": content_type},
             ExpiresIn=settings.S3_PRESIGN_EXPIRES_SECONDS,
         )
         return {
@@ -174,8 +174,8 @@ async def upload_bytes(
             raise ValidationError("S3 storage is not configured")
         await asyncio.to_thread(
             _s3_client().put_object,
-            Bucket=settings.S3_BUCKET,
-            Key=object_path,
+            Bucket=bucket,
+            Key=actual_object_name,
             Body=data,
             ContentType=content_type,
         )
@@ -189,7 +189,7 @@ async def upload_bytes(
     if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{settings.SUPABASE_URL}/storage/v1/object/{bucket}/{object_name}",
+                f"{settings.SUPABASE_URL}/storage/v1/object/{bucket}/{actual_object_name}",
                 headers={
                     "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
                     "Content-Type": content_type,
