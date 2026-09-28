@@ -23,6 +23,26 @@ async def register_crop(
     stage=None,
     notes: str | None = None,
 ) -> Crop:
+    # SSS-008: Validate total crop acreage against farmer's registered landholding
+    if farmer.farmer_profile and farmer.farmer_profile.acres_of_land:
+        total_land = float(farmer.farmer_profile.acres_of_land)
+        if total_land > 0:
+            active_acres = (
+                await db.execute(
+                    select(func.coalesce(func.sum(Crop.acres), 0.0)).where(
+                        Crop.farmer_id == farmer.id,
+                        Crop.deleted_at.is_(None),
+                    )
+                )
+            ).scalar() or 0.0
+            if float(active_acres) + float(acres) > total_land + 0.001:
+                from app.core.exceptions import ValidationError
+
+                remaining = max(0.0, total_land - float(active_acres))
+                raise ValidationError(
+                    f"Crop area ({float(acres):.1f} acres) exceeds remaining available land ({remaining:.1f} acres of {total_land:.1f} total registered acres)."
+                )
+
     crop = Crop(
         farmer_id=farmer.id,
         crop_type=crop_type,
@@ -323,6 +343,27 @@ async def update_own_crop(db: AsyncSession, *, farmer: User, crop_id: uuid.UUID,
     if has_comment:
         # farmer_comment=None means "clear it" (empty string was coerced to None by validator)
         crop.farmer_comment = farmer_comment
+    if "acres" in updates and farmer.farmer_profile and farmer.farmer_profile.acres_of_land:
+        total_land = float(farmer.farmer_profile.acres_of_land)
+        new_acres = float(updates["acres"])
+        if total_land > 0:
+            other_acres = (
+                await db.execute(
+                    select(func.coalesce(func.sum(Crop.acres), 0.0)).where(
+                        Crop.farmer_id == farmer.id,
+                        Crop.id != crop_id,
+                        Crop.deleted_at.is_(None),
+                    )
+                )
+            ).scalar() or 0.0
+            if other_acres + new_acres > total_land + 0.001:
+                from app.core.exceptions import ValidationError
+
+                remaining = max(0.0, total_land - other_acres)
+                raise ValidationError(
+                    f"Crop area ({new_acres:.1f} acres) exceeds remaining available land ({remaining:.1f} acres of {total_land:.1f} total registered acres)."
+                )
+
     old = {k: str(getattr(crop, k)) for k in updates if hasattr(crop, k)}
     for field, value in updates.items():
         if hasattr(crop, field):
