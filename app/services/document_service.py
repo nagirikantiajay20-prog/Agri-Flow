@@ -21,8 +21,8 @@ from app.models.enums import DocumentType
 from app.models.user import FarmerDocument, FarmerProfile, User
 from app.services import audit_service
 
-IMAGE_TYPES = {"image/jpeg", "image/png"}
-DOCUMENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+DOCUMENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 
 PROFILE_COLUMN: dict[DocumentType, str] = {
     DocumentType.AVATAR: "profile_photo",
