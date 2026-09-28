@@ -10,6 +10,7 @@ from app.api.v1.farmer._mappers import crop_out, visit_out
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import require_farmer
+from app.core.exceptions import ForbiddenError
 from app.integrations import storage
 from app.models.crop import Crop
 from app.models.user import User
@@ -80,11 +81,7 @@ async def update_crop(
     farmer: Annotated[User, Depends(require_farmer("crop.create"))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    updates = body.model_dump(exclude_unset=True)
-    if "status" in updates:
-        updates["stage"] = updates.pop("status")
-    crop = await crop_service.update_own_crop(db, farmer=farmer, crop_id=crop_id, updates=updates)
-    return SuccessResponse(data=crop_out(crop), message="Crop updated")
+    raise ForbiddenError("Editing crops is restricted. Once added, crop records are permanent.")
 
 
 @router.delete("/{crop_id}", response_model=MessageResponse)
@@ -94,12 +91,7 @@ async def delete_crop(
     db: Annotated[AsyncSession, Depends(get_db)],
     body: s.CropDeleteIn | None = None,
 ):
-    # Soft delete — see crop_service.delete_own_crop. The crop, its farm
-    # visits and any linked grain sales are preserved; only hidden from
-    # the default (active) crop list.
-    reason = body.reason if body else "Removed"
-    await crop_service.delete_own_crop(db, farmer=farmer, crop_id=crop_id, reason=reason)
-    return MessageResponse(message="Crop field removed from your active list")
+    raise ForbiddenError("Deleting crops is restricted. Once added, crop records are permanent.")
 
 
 @router.get("/{crop_id}/inspections", response_model=SuccessResponse[list[s.VisitOut]])
