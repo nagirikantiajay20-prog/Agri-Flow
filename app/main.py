@@ -70,16 +70,19 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["health"])
+@app.head("/health", tags=["health"], include_in_schema=False)
 async def health():
     return {"status": "ok"}
 
 
 @app.get("/health/live", tags=["health"])
+@app.head("/health/live", tags=["health"], include_in_schema=False)
 async def health_live():
     return {"status": "alive"}
 
 
 @app.get("/health/ready", tags=["health"])
+@app.head("/health/ready", tags=["health"], include_in_schema=False)
 async def health_ready():
     try:
         async with engine.connect() as conn:
